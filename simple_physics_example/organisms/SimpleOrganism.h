@@ -10,16 +10,17 @@
 
 #include "geometry/Angle2D.h"
 #include "physics/Body2D.h"
+#include "physics/BodyOwner2D.h"
 #include "../resources/SimpleResource.h"
 
-class SimpleOrganism {
-  using Body_t = emp::Body<emp::Circle>;
+class SimpleOrganism : public emp::BodyOwner_Base<emp::Body<emp::Circle>> {
   private:
-    Body_t *body;
+    using Body_t = emp::Body<emp::Circle>;
+    using emp::BodyOwner_Base<Body_t>::body;
+    using emp::BodyOwner_Base<Body_t>::has_body;
     int offspring_count;
     double birth_time;
     double membrane_strengh;  // How much pressure able to withstand before popping? TODO: should this be stored in body?
-    bool has_body;
     double energy;
     int resources_collected;
     bool detach_on_birth;
@@ -28,16 +29,16 @@ class SimpleOrganism {
     emp::BitVector genome;
     // TODO: use argument forwarding to be able to create body when making organism!
     SimpleOrganism(const emp::Circle &_p, int genome_length = 1, bool detach_on_birth = true)
-      : body(nullptr),
-        offspring_count(0),
+      : offspring_count(0),
         birth_time(0.0),
         membrane_strengh(1.0),
-        has_body(false),
         energy(0.0),
         resources_collected(0.0),
         detach_on_birth(detach_on_birth),
         genome(genome_length, false)
     {
+      body = nullptr;
+      has_body = false;
       AttachBody(new Body_t(_p));
       body->RegisterOnLinkUpdateCallback([this](emp::BodyLink * link) { this->OnBodyLinkUpdate(link); });
       body->SetMaxPressure(membrane_strengh);
@@ -47,16 +48,16 @@ class SimpleOrganism {
 
     // At the moment does not copy a body over.
     SimpleOrganism(const SimpleOrganism &other)
-       : body(nullptr),
-         offspring_count(other.GetOffspringCount()),
+       : offspring_count(other.GetOffspringCount()),
          birth_time(other.GetBirthTime()),
          membrane_strengh(other.GetMembraneStrength()),
-         has_body(other.has_body),
          energy(other.GetEnergy()),
          resources_collected(other.GetResourcesCollected()),
          detach_on_birth(other.GetDetachOnBirth()),
          genome(other.genome)
     {
+      body = nullptr;
+      has_body = other.has_body;
       if (has_body) {
         AttachBody(new Body_t(other.GetConstBody().GetConstShape()));
         body->RegisterOnLinkUpdateCallback([this](emp::BodyLink * link) { this->OnBodyLinkUpdate(link); });
@@ -66,12 +67,7 @@ class SimpleOrganism {
       }
     }
 
-    ~SimpleOrganism() {
-      if (has_body) {
-        delete body;
-        DetachBody();
-      }
-    }
+    ~SimpleOrganism() { ; }
 
     int GetOffspringCount() const { return offspring_count; }
     double GetEnergy() const { return energy; }
@@ -79,31 +75,16 @@ class SimpleOrganism {
     double GetBirthTime() const { return birth_time; }
     bool GetDetachOnBirth() const { return detach_on_birth; }
     double GetMembraneStrength() const { return membrane_strengh; }
-    Body_t * GetBodyPtr() { emp_assert(has_body); return body; }
-    Body_t & GetBody() { emp_assert(has_body); return *body; }
-    const Body_t & GetConstBody() const { emp_assert(has_body) return *body; }
-    bool HasBody() const { return has_body; }
-    void FlagBodyDestruction() { has_body = false; }
+
     double GetResourceConsumptionProb(const SimpleResource &resource) {
       if (genome.GetSize() == 0) return 1.0;
       else return genome.CountOnes() / (double) genome.GetSize();
     }
 
-    void AttachBody(Body_t * in_body) {
-      body = in_body;
-      has_body = true;
-    }
-
-    void DetachBody() {
-      body = nullptr;
-      has_body = false;
-    }
-
-    void Evaluate() {
-      if (body->GetDestroyFlag()) {
-        delete body;
-        DetachBody();
-      }
+    void Evaluate() override {
+      // Required: Be sure to call BodyOwner_Base evaluate.
+      emp::BodyOwner_Base<Body_t>::Evaluate();
+      // - This is where things that organism should do every update go -
     }
 
     void OnCollision(emp::Body2D_Base * other_body) {
@@ -112,7 +93,7 @@ class SimpleOrganism {
 
     void OnBodyLinkUpdate(emp::BodyLink * link) {
       // What to do with reproduction links
-      if (link->type == emp::BODY_LINK_TYPE::REPRODUCTION) {
+      if (link->type == emp::BODY_LINK_TYPE::REPRODUCTION && detach_on_birth) {
         if (link->cur_dist >= link->target_dist) link->flag_for_removal = true;
       }
     }
@@ -158,31 +139,6 @@ class SimpleOrganism {
       energy = 0.0;
       resources_collected = 0;
       offspring_count = 0;
-    }
-
-    bool operator==(const SimpleOrganism &other) const {
-      /* Do these organisms have the same genotype? */
-      return this->genome == other.genome;
-    }
-
-    bool operator<(const SimpleOrganism &other) const {
-      return this->genome < other.genome;
-    }
-
-    bool operator>(const SimpleOrganism &other) const {
-      return this->genome > other.genome;
-    }
-
-    bool operator!=(const SimpleOrganism &other) const {
-      return this->genome != other.genome;
-    }
-
-    bool operator>=(const SimpleOrganism &other) const {
-      return !this->operator<(other);
-    }
-
-    bool operator<=(const SimpleOrganism &other) const {
-      return !this->operator>(other);
     }
 };
 
