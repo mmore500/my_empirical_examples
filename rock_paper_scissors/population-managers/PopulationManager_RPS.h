@@ -36,6 +36,21 @@ protected:
 
   static constexpr int RPS_ORG_PHYSICS_OWNER_ID = Physics_t::template GetTypeID<RPSOrg>();
 
+  void CountObject(Organism_t * org) {
+    // Count.
+    switch(org->GetType()) {
+      case(RPS_TYPE::ROCK):
+        num_rocks++;
+        break;
+      case(RPS_TYPE::PAPER):
+        num_papers++;
+        break;
+      case(RPS_TYPE::SCISSORS):
+        num_scissors++;
+        break;
+    }
+  }
+
 public:
 
   PopulationManager_RPS() :
@@ -73,7 +88,7 @@ public:
   Physics_t & GetPhysics() { return physics; }
   int GetNumPapers() const { return num_papers; }
   int GetNumRocks() const { return num_rocks; }
-  int GetNumScisscors() const { return num_scissors; }
+  int GetNumScissors() const { return num_scissors; }
 
   int AddOrg(Organism_t *new_org) {
     int pos = this->GetSize();
@@ -128,6 +143,10 @@ public:
     emp::vector<Organism_t*> new_organisms;
     int cur_size = GetSize();
     int cur_id = 0;
+
+    num_papers = 0;
+    num_scissors = 0;
+    num_rocks = 0;
     while (cur_id < cur_size) {
       Organism_t *org = population[cur_id];
       // Evaluate.
@@ -158,31 +177,20 @@ public:
           continue;
         } // TODO: else { delete all links }
       }
+      CountObject(org);
       // Reproduction. Organisms that have sufficient energy and are not too stressed may reproduce.
       if (!org->GetBodyPtr()->ExceedsStressThreshold() && org->GetEnergy() >= cost_of_repro) {
         auto *baby_org = org->Reproduce(random_ptr, type_mutation_rate, cost_of_repro);
         new_organisms.push_back(baby_org);
+        CountObject(baby_org);
       }
       // Add some noise to movement.
       org->GetBody().IncSpeed(Angle(random_ptr->GetDouble() * (2.0 * emp::PI)).GetPoint(0.15));
       cur_id++;
     }
     population.resize(cur_size);
-    // Cull the population to make room for new offspring.
-    // int total_size = (int)(population.size() + new_organisms.size());
-    // if (total_size > max_pop_size) {
-    //   // Cull population to make room for new organisms.
-    //   int new_size = ((int) population.size()) - (total_size - max_pop_size);
-    //   emp::Shuffle<Organism_t *>(*random_ptr, population, new_size);
-    //   for (int i = new_size; i < (int) population.size(); i++) {
-    //     delete population[i];
-    //   }
-    //   population.resize(new_size);
-    // }
-    // Add new organisms to the population.
     for (auto *new_organism : new_organisms) AddOrg(new_organism);
   }
-
 };
 
 }

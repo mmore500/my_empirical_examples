@@ -66,6 +66,8 @@ namespace web {
   void DrawRPS(Canvas canvas, const Surface2D<SHAPE_TYPE> & surface) {
     canvas.Clear();
 
+
+
     const double w = surface.GetWidth();
     const double h = surface.GetHeight();
 
@@ -84,23 +86,17 @@ namespace web {
       if (type == RPS_TYPE::ROCK) {
         // Draw the circles.
         EM_ASM_ARGS({
-          var ctx = document.getElementById("rps-canvas").getContext("2d");
-          var img = document.getElementById("rock-img");
-          ctx.drawImage(img, $0, $1, width = $2, height = $2);
+          emp.this_ctx.drawImage(emp.rock_img, $0, $1, width = $2, height = $2);
         }, x, y, d);
       } else if (type == RPS_TYPE::PAPER) {
         // Draw the circles.
         EM_ASM_ARGS({
-          var ctx = document.getElementById("rps-canvas").getContext("2d");
-          var img = document.getElementById("paper-img");
-          ctx.drawImage(img, $0, $1, width = $2, height = $2);
+          emp.this_ctx.drawImage(emp.paper_img, $0, $1, width = $2, height = $2);
         }, x, y, d);
       } else if (type == RPS_TYPE::SCISSORS) {
         // Draw the circles.
         EM_ASM_ARGS({
-          var ctx = document.getElementById("rps-canvas").getContext("2d");
-          var img = document.getElementById("scissors-img");
-          ctx.drawImage(img, $0, $1, width = $2, height = $2);
+          emp.this_ctx.drawImage(emp.scissors_img, $0, $1, width = $2, height = $2);
         }, x, y, d);
       }
     }
@@ -195,18 +191,44 @@ class RockPaperScissorsInterface {
 
       // --- Setup Stats View. ---
       stats_view.SetAttr("class", "well");
+      stats_view << "<h2>Stats View</h2><br>";
+      stats_view << "Update: "
+                 << web::Live([this]() {
+                      if (world != nullptr) return world->update;
+                      else return -1; }) << "<br>";
+      stats_view << "Total Object Count: "
+                 << web::Live([this]() {
+                      if (world != nullptr) return world->popM.GetSize();
+                      else return -1; })
+                 << "<br>";
+      stats_view << "Rock Count: "
+                 << web::Live([this]() {
+                      if (world != nullptr) return world->popM.GetNumRocks();
+                      else return -1; })
+                 << "<br>";
+      stats_view << "Paper Count: "
+                << web::Live([this]() {
+                     if (world != nullptr) return world->popM.GetNumPapers();
+                     else return -1; })
+                << "<br>";
+      stats_view << "Scissors Count: "
+                 << web::Live([this]() {
+                      if (world != nullptr) return world->popM.GetNumScissors();
+                      else return -1; })
+                 << "<br>";
 
       // --- Setup Config View. ---
-      param_view.SetAttr("class", "well");
+      //param_view.SetAttr("class", "well");
+      ////// Make sure images are loaded.
       param_view << web::Image("imgs/rock.svg", "rock-img") << "<br>";
       auto rock_img = param_view.Image("rock-img");
-      rock_img.SetAttr("style", "width:50px;height:50px;");
+      rock_img.SetAttr("style", "width:50px;height:50px;display:none;");
       param_view << web::Image("imgs/paper.svg", "paper-img") << "<br>";
       auto paper_img = param_view.Image("paper-img");
-      paper_img.SetAttr("style", "width:50px;height:50px;");
+      paper_img.SetAttr("style", "width:50px;height:50px;display:none;");
       param_view << web::Image("imgs/scissors.svg", "scissors-img") << "<br>";
       auto scissors_img = param_view.Image("scissors-img");
-      scissors_img.SetAttr("style", "width:50px;height:50px;");
+      scissors_img.SetAttr("style", "width:50px;height:50px;display:none;");
 
       // - Setup EXPERIMENT CONFIG mode view. -
       exp_config << web::Button([this]() { DoRunExperiment(); }, LOLLY_GLYPH, "start_exp_but");
@@ -214,6 +236,22 @@ class RockPaperScissorsInterface {
       start_exp_but.SetAttr("class", "btn btn-danger");
       exp_config << "<hr>";
       //  - Experiment Settings -
+      exp_config << "<h3>General Settings</h3>";  // TODO: Config system group name
+      exp_config << GenerateParamNumberField("Random Seed", "random-seed", random_seed);
+      exp_config << GenerateParamNumberField("World Width", "world-width", world_width);
+      exp_config << GenerateParamNumberField("World Height", "world-height", world_height);
+      exp_config << GenerateParamNumberField("Initial # of Rocks", "initial-num-rocks", initial_num_rocks);
+      exp_config << GenerateParamNumberField("Initial # of Papers", "initial-num-papers", initial_num_papers);
+      exp_config << GenerateParamNumberField("Initial # of Scissors", "initial-num-scissors", initial_num_scissors);
+      // -- Organism Settings --
+      exp_config << "<h3>Object Settings</h3>";
+      exp_config << GenerateParamNumberField("Cost of Reproduction", "cost-of-repro", cost_of_repro);
+      exp_config << GenerateParamNumberField("Type Mutation Rate", "type-mutation-rate", type_mutation_rate);
+      exp_config << GenerateParamNumberField("Movement Noise", "movement-noise", movement_noise);
+      //  -- Physics-specific --
+      exp_config << "<h3>Physics-Specific Settings</h3>";
+      exp_config << GenerateParamNumberField("Surface Friction", "surface-friction", surface_friction);
+
 
       // Configure page view.
       ChangePageView(page_mode);
@@ -258,7 +296,6 @@ class RockPaperScissorsInterface {
 
     // Call to initialize a new experiment with current config values.
     void InitializeExperiment() {
-      std::cout << "Interface::InitializeExperiment" << std::endl;
       // Setup the world.
       if (world != nullptr) delete world;
       if (random != nullptr) delete random;
@@ -267,6 +304,12 @@ class RockPaperScissorsInterface {
       // Setup world view on canvas.
       world_view.ClearChildren();
       world_view << web::Canvas(world_width, world_height, "rps-canvas") << "<br>";
+      EM_ASM({
+        emp.this_ctx = document.getElementById("rps-canvas").getContext("2d");
+        emp.rock_img = document.getElementById("rock-img");
+        emp.paper_img = document.getElementById("paper-img");
+        emp.scissors_img = document.getElementById("scissors-img");
+      });
       // Configure the new experiment.
       world->ConfigPop(world_width, world_height, surface_friction,
                        type_mutation_rate, cost_of_repro, movement_noise);
@@ -275,7 +318,6 @@ class RockPaperScissorsInterface {
     }
 
     void ResetEvolution() {
-      std::cout << "Interface::ResetEvolution" << std::endl;
       // Purge the world!
       world->Clear();
       world->update = 0;
@@ -311,7 +353,6 @@ class RockPaperScissorsInterface {
 
     // Called on start/stop button press.
     bool DoToggleRun() {
-      std::cout << "Interface::DoToggleRun" << std::endl;
       anim.ToggleActive();
       // Grab buttons to manipulate:
       auto start_but = dashboard.Button("start_but");
@@ -333,7 +374,6 @@ class RockPaperScissorsInterface {
 
     // Called on reset button press and when initializing the experiment.
     bool DoReset() {
-      std::cout << "Interface::DoReset" << std::endl;
       ResetEvolution();
       web::DrawRPS(world_view.Canvas("rps-canvas"), world->popM.GetPhysics().GetSurface());
       //web::Draw(world_view.Canvas("simple-world-canvas"), world->popM.GetPhysics().GetSurface(), emp::GetHueMap(360));
@@ -343,7 +383,6 @@ class RockPaperScissorsInterface {
 
     // Called on step button press.
     bool DoStep() {
-      std::cout << "Interface::DoStep" << std::endl;
       emp_assert(anim.GetActive() == false);
       anim.Step();
       return true;
@@ -351,7 +390,6 @@ class RockPaperScissorsInterface {
 
     // Called on run experiment button press (from config exp page).
     bool DoRunExperiment() {
-      std::cout << "Interface::DoRunExperiment" << std::endl;
       // Collect parameter values.
       UpdateParams();
       // Initialize the experiment.
@@ -363,7 +401,6 @@ class RockPaperScissorsInterface {
 
     // Called on reconfigure exp button press (from run exp page).
     bool DoReconfigureExperiment() {
-      std::cout << "Interface::DoReconfigureExperiment" << std::endl;
       // Set page mode to CONFIG.
       if (anim.GetActive()) {
         anim.ToggleActive();
@@ -379,7 +416,19 @@ class RockPaperScissorsInterface {
 
     // Update parameter values from webpage using javascript.
     void UpdateParams() {
-
+      // -- General --
+      random_seed = EM_ASM_INT_V({ return $("#random-seed-param").val(); });
+      world_width = EM_ASM_INT_V({ return $("#world-width-param").val(); });
+      world_height = EM_ASM_INT_V({ return $("#world-height-param").val(); });
+      initial_num_rocks = EM_ASM_INT_V({ return $("#initial-num-rocks-param").val(); });
+      initial_num_papers = EM_ASM_INT_V({ return $("#initial-num-papers-param").val(); });
+      initial_num_scissors = EM_ASM_INT_V({ return $("#initial-num-scissors-param").val(); });
+      // -- Organism --
+      type_mutation_rate = EM_ASM_DOUBLE_V({ return $("#type-mutation-rate-param").val(); });
+      cost_of_repro = EM_ASM_DOUBLE_V({ return $("#cost-of-repro-param").val(); });
+      // -- Physics-Specific --
+      surface_friction = EM_ASM_DOUBLE_V({ return $("#surface-friction-param").val(); });
+      movement_noise = EM_ASM_DOUBLE_V({ return $("#movement-noise-param").val(); });
     }
 
     PageMode ChangePageView(PageMode new_mode) {
