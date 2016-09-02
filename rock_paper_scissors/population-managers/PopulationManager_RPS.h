@@ -34,8 +34,6 @@ protected:
   double cost_of_repro;
   double movement_noise;
 
-  static constexpr int RPS_ORG_PHYSICS_OWNER_ID = Physics_t::template GetTypeID<RPSOrg>();
-
   void CountObject(Organism_t * org) {
     // Count.
     switch(org->GetType()) {
@@ -167,9 +165,8 @@ public:
           if (link->link_strength > max_link->link_strength) max_link = link;
         }
         // Feed organiism to the strongest link.
-        // TODO: This bit is a little gross, but not sure if there's a better way to do it?
-        if (max_link->from->GetPhysicsBodyTypeID() == RPS_ORG_PHYSICS_OWNER_ID) {
-          RPSOrg *eater_org = static_cast<Body<Circle>*>(max_link->from)->GetOwnerPtr<RPSOrg, RPS_ORG_PHYSICS_OWNER_ID>();
+        if (physics.template IsBodyOwnerType<RPSOrg>((Body<Circle>*)max_link->from)) {
+          RPSOrg *eater_org = physics.template ToBodyOwnerType<RPSOrg>((Body<Circle>*)max_link->from);
           eater_org->IncEnergy();
           delete org;
           cur_size--;

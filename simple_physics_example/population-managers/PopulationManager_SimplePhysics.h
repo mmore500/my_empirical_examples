@@ -55,10 +55,6 @@ class PopulationManager_SimplePhysics {
 
     double movement_noise;
 
-    // Useful things to not have to look up all of the time.
-    static constexpr int RESOURCE_PHYSICS_BODY_TYPE_ID = Physics_t::template GetTypeID<SimpleResource>();
-    static constexpr int ORG_PHYSICS_BODY_TYPE_ID = Physics_t::template GetTypeID<SimpleOrganism>();
-
   public:
     PopulationManager_SimplePhysics()
       : physics(),
@@ -202,9 +198,8 @@ class PopulationManager_SimplePhysics {
           }
           // Feed resource to the strongest link.
           //  * When an organism eats a resource:
-          // TODO: This bit is a little gross, but not sure if there's a better way to do it?
-          if (max_link->from->GetPhysicsBodyTypeID() == ORG_PHYSICS_BODY_TYPE_ID) {
-            SimpleOrganism *org = static_cast<Body<Circle>*>(max_link->from)->GetOwnerPtr<SimpleOrganism, ORG_PHYSICS_BODY_TYPE_ID>();
+          if (physics.template IsBodyOwnerType<SimpleOrganism>((Body<Circle>*)max_link->from)) {
+            SimpleOrganism *org = physics.template ToBodyOwnerType<SimpleOrganism>((Body<Circle>*)max_link->from);
             org->ConsumeResource(*resource);
             delete resource;
             cur_size--;
