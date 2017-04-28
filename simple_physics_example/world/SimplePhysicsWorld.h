@@ -4,6 +4,7 @@
 #include "base/vector.h"
 #include "tools/BitVector.h"
 #include "tools/Random.h"
+#include "tools/random_utils.h"
 #include "tools/TypeTracker.h"
 #include "physics/Physics2D.h"
 #include "geometry/Point2D.h"
@@ -29,12 +30,16 @@ namespace evo {
 
     int max_pop_size;
     int genome_length;
+    double cost_of_repro;
+    double resource_value;
 
   public:
     // TODO: PopulationManager_Base doesn't handle organisms just dying in the population very well
     SimplePhysicsWorld(double _w, double _h, Random *_random_ptr, double _surface_friction,
-                       int _max_pop_size, int _genome_length)
-    : physics(), cur_update(0), max_pop_size(_max_pop_size), genome_length(_genome_length) {
+                       int _max_pop_size, int _genome_length, double _cost_of_repro, double _resource_value)
+    : physics(), cur_update(0), max_pop_size(_max_pop_size), genome_length(_genome_length),
+      cost_of_repro(_cost_of_repro), resource_value(_resource_value)
+    {
       random_ptr = _random_ptr;
       physics.ConfigPhysics(_w, _h, _random_ptr, _surface_friction);
       std::function<void(Organism_t*, Resource_t*)> fun = [this](Organism_t *org, Resource_t *res) {
@@ -103,10 +108,10 @@ namespace evo {
 
     // TODO: Res, dispenser collision handler
     // TODO: Org, dispenser collision handler
-
     void Update() {
       // Progress physics by one time step.
       physics.Update();
+      emp::vector<Organism_t*> new_organisms;
       // Manage resources.
       int cur_size = GetResourceCnt();
       int cur_id = 0;
@@ -144,8 +149,14 @@ namespace evo {
         Point res_loc(random_ptr->GetDouble(radius, physics.GetWidth() - radius),
                       random_ptr->GetDouble(radius, physics.GetHeight() - radius));
         Resource_t *new_resource = new Resource_t(Circle(res_loc, radius));
-        emp::BitVector aff = emp::BitVector(genome_length, 1);
-        new_resource->SetAffinity(aff);
+
+        if (random_ptr->P(0.5)) {
+          emp::BitVector aff(genome_length, 1);
+          new_resource->SetAffinity(aff);
+        } else {
+          emp::BitVector aff(genome_length, 0);
+          new_resource->SetAffinity(aff);
+        }
         AddResource(new_resource);
       }
       // Manage population.
@@ -155,12 +166,27 @@ namespace evo {
         Organism_t *org = population[cur_id];
         // Evaluate organism.
         org->Evaluate();
+        // Reproduction?
+        if (org->GetEnergy() >= cost_of_repro) {
+          //auto *offspring = ;
+          new_organisms.push_back(org->Reproduce(random_ptr, 0.1, cost_of_repro));
+        }
         // Movement noise.
         org->GetBody().IncVelocity(Angle(random_ptr->GetDouble() * (2.0 * emp::PI)).GetPoint(0.1));
         ++cur_id;
       }
       population.resize(cur_size);
+      // Cull the population if necessary.
+      int total_size = (int)(population.size() + new_organisms.size());
+      if (total_size > 200) {
+        // Cull population to make room for new organisms.
+        int new_size = (int)population.size() - (total_size - 200);
+        emp::Shuffle<Organism_t *>(*random_ptr, population, new_size);
+        for (int i = new_size; i < (int)population.size(); i++) delete population[i];
+        population.resize(new_size);
+      }
       // Add new organisms.
+      for (auto *offspring : new_organisms) AddOrg(offspring);
       ++cur_update;
     }
   };

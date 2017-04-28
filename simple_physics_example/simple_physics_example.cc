@@ -1,37 +1,32 @@
 /*
-  simple_physics_example.cc
-
-  Third iteration of learning physics in Empirical.
-  Goal:
-    * Everything from EvolveInPhysicsPt1
-    * Sensors
-    * Actuators
-    * Parameter configuration from webpage.
 */
 
 #include <iostream>
 #include <string>
 #include <sstream>
 
-#include "./geometry/Point2D.h"
-#include "./organisms/SimpleOrganism.h"
-#include "./resources/SimpleResource.h"
-#include "./population-managers/PopulationManager_SimplePhysics.h"
+#include "geometry/Point2D.h"
+#include "./world/SimpleOrganism.h"
+#include "./world/SimpleResource.h"
+#include "./world/SimplePhysicsWorld.h"
 
 #include "web/web.h"
 #include "web/Document.h"
 #include "web/Animate.h"
 #include "web/Canvas.h"
 #include "web/canvas_utils.h"
-
 #include "web/emfunctions.h"
 
+#include "base/vector.h"
+
 #include "tools/Random.h"
-#include "tools/vector.h"
 #include "tools/assert.h"
 #include "tools/TypeTracker.h"
+#include "tools/math.h"
 
 #include "evo/World.h"
+
+#include "physics/Physics2D.h"
 
 namespace web = emp::web;
 
@@ -71,15 +66,33 @@ const int DEFAULT_RESOURCE_IN_FLOW = 10;
 const double DEFAULT_SURFACE_FRICTION = 0.0025;
 const double DEFAULT_MOVEMENT_NOISE = 0.15;
 
+// Draw function for SimplePhysicsWorld
+void Draw(web::Canvas canvas,
+          emp::evo::SimplePhysicsWorld *world,
+          const emp::vector<std::string> & color_map) {
+  canvas.Clear();
+  const double w = world->GetWidth();
+  const double h = world->GetHeight();
+  // Setup a black background.
+  canvas.Rect(0, 0, w, h, "black");
+  // Draw organisms & resources.
+  const auto & orgs = world->GetConstPopulation();
+  const auto & reses = world->GetConstResources();
+  for (auto *org : orgs)
+    canvas.Circle(org->GetBody().GetShape(), color_map[org->GetGenomeID()], "cyan");
+  for (auto *res : reses)
+    canvas.Circle(res->GetBody().GetShape(), color_map[res->GetResourceID()], "red");
+}
 
 class EvoInPhysicsInterface {
   private:
     // Aliases
     using Organism_t = SimpleOrganism;
-    using SimplePhysicsWorld = emp::evo::World<Organism_t, emp::evo::PopulationManager_SimplePhysics<Organism_t> >;
+    using Resource_t = SimpleResource;
+    using World_t = emp::evo::SimplePhysicsWorld;
 
     emp::Random *random;
-    SimplePhysicsWorld *world;
+    World_t *world;
     // Interface-specific objects.
     //  - Exp run views.
     web::Document dashboard;      // Visible during exp page mode.
@@ -178,16 +191,16 @@ class EvoInPhysicsInterface {
       stats_view << "<h2>Stats View</h2><br>";
       stats_view << "Update: "
                  << web::Live([this]() {
-                      if (world != nullptr) return world->update;
+                      if (world != nullptr) return world->GetCurrentUpdate();
                       else return -1; }) << "<br>";
       stats_view << "Organism Count: "
                  << web::Live([this]() {
-                      if (world != nullptr) return world->popM.GetSize();
+                      if (world != nullptr) return world->GetPopulationSize();
                       else return -1; })
                  << "<br>";
       stats_view << "Resource Count: "
                  << web::Live([this]() {
-                      if (world != nullptr) return world->popM.GetNumResources();
+                      if (world != nullptr) return world->GetResourceCnt();
                       else return -1; })
                  << "<br>";
       // --- Setup Config View. ---
@@ -298,44 +311,38 @@ class EvoInPhysicsInterface {
       if (world != nullptr) delete world;
       if (random != nullptr) delete random; // World does not own *random. Delete it.
       random = new emp::Random(random_seed);
-      world = new SimplePhysicsWorld(random, "simple-world");
+      world = new World_t(world_width, world_height, random, surface_friction, max_pop_size,
+                          genome_length, cost_of_repro, resource_value);
       // Setup world view canvs.
       world_view.ClearChildren();
       world_view << web::Canvas(world_width, world_height, "simple-world-canvas") << "<br>";
-      // Configure new experiment.
-      // TODO: add resource_in_flow_rate parameter. Currently magic number.
-      world->ConfigPop(world_width, world_height, surface_friction,
-                       max_pop_size, point_mutation_rate, max_organism_radius,
-                       cost_of_repro, max_resource_age, max_resource_count, resource_in_flow,
-                       resource_radius, resource_value, movement_noise);
       // Run a reset
       DoReset();
     }
 
     void ResetEvolution() {
       // Purge the world!
-      world->Clear();
-      world->update = 0;
+      world->Reset();
       // Initialize the population.
-      const emp::Point<double> mid_point(world_width / 2.0, world_height / 2.0);
+      const emp::Point mid_point(world_width / 2.0, world_height / 2.0);
       int org_radius = max_organism_radius;
-      Organism_t ancestor(emp::Circle(mid_point, org_radius), genome_length, detach_on_birth);
+      Organism_t *ancestor = new Organism_t(emp::Circle(mid_point, org_radius), genome_length, detach_on_birth);
       // Randomize ancestor genome.
-      for (int i = 0; i < ancestor.genome.GetSize(); i++) {
-        if (random->P(0.5)) ancestor.genome[i] = !ancestor.genome[i];
+      for (int i = 0; i < ancestor->genome.GetSize(); i++) {
+        if (random->P(0.5)) ancestor->genome[i] = !ancestor->genome[i];
       }
       // TODO: make mass dependent on density
-      ancestor.GetBody().SetMass(10.0);
-      ancestor.SetMembraneStrength(organism_membrane_strength);
-      ancestor.SetBirthTime(-1);
-      world->Insert(ancestor);
+      ancestor->GetBody().SetMass(10.0);
+      ancestor->SetBirthTime(-1);
+      ancestor->UpdateGenomeID();
+      world->AddOrg(ancestor);
     }
 
     // Single animation step for this interface.
     void Animate(const web::Animate &anim) {
       world->Update();
       // Draw
-      web::Draw(world_view.Canvas("simple-world-canvas"), world->popM.GetPhysics().GetSurface(), emp::GetHueMap(360));
+      Draw(world_view.Canvas("simple-world-canvas"), world, emp::GetHueMap(genome_length + 1, 0, 275));
       stats_view.Redraw();
     }
 
@@ -363,7 +370,7 @@ class EvoInPhysicsInterface {
     // Called on reset button press and when initializing the experiment.
     bool DoReset() {
       ResetEvolution();
-      web::Draw(world_view.Canvas("simple-world-canvas"), world->popM.GetPhysics().GetSurface(), emp::GetHueMap(360));
+      Draw(world_view.Canvas("simple-world-canvas"), world, emp::GetHueMap(genome_length + 1, 0, 275));
       stats_view.Redraw();
       return true;
     }
