@@ -27,7 +27,7 @@ class SimpleResource : public emp::PhysicsBodyOwner_Base<emp::PhysicsBody2D<emp:
 
 
   public:
-    SimpleResource(const emp::Circle &_p, double _value = 1.0, emp::BitVector _affinity = emp::BitVector(1, false))
+    SimpleResource(const emp::Circle &_p, double _value = 1.0, const emp::BitVector & _affinity = emp::BitVector(1, false))
     : value(_value), age(0.0), affinity(_affinity)
     {
       UpdateResourceID();
@@ -60,7 +60,7 @@ class SimpleResource : public emp::PhysicsBodyOwner_Base<emp::PhysicsBody2D<emp:
     int GetResourceID() const { return resource_id; }
 
     const emp::BitVector & GetAffinity() const { return affinity; }
-    void SetAffinity(emp::BitVector & _affinity) {
+    void SetAffinity(const emp::BitVector & _affinity) {
       affinity = emp::BitVector(_affinity);
       UpdateResourceID();
     }

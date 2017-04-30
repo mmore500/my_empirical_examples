@@ -8,6 +8,7 @@
 #include "geometry/Point2D.h"
 #include "./world/SimpleOrganism.h"
 #include "./world/SimpleResource.h"
+#include "./world/SimpleResourceDispenser.h"
 #include "./world/SimplePhysicsWorld.h"
 
 #include "web/web.h"
@@ -57,7 +58,7 @@ const double DEFAULT_COST_OF_REPRO = 1;
 const bool DEFAULT_DETACH_ON_BIRTH = true;
 const double DEFAULT_ORGANISM_MEMBRANE_STRENGTH = 10.0;
 //  -- Resource-specific --
-const int DEFAULT_MAX_RESOURCE_AGE = 10000;
+const int DEFAULT_MAX_RESOURCE_AGE = 250;
 const int DEFAULT_MAX_RESOURCE_COUNT = 100;
 const double DEFAULT_RESOURCE_RADIUS = 5.0;
 const double DEFAULT_RESOURCE_VALUE = 1.0;
@@ -78,10 +79,17 @@ void Draw(web::Canvas canvas,
   // Draw organisms & resources.
   const auto & orgs = world->GetConstPopulation();
   const auto & reses = world->GetConstResources();
-  for (auto *org : orgs)
-    canvas.Circle(org->GetBody().GetShape(), color_map[org->GetGenomeID()], "cyan");
-  for (auto *res : reses)
-    canvas.Circle(res->GetBody().GetShape(), color_map[res->GetResourceID()], "red");
+  const auto & disps = world->GetConstDispensers();
+  for (auto *disp : disps) {
+    // TODO: @amlalejini "" as arg just uses previous .Circle argment.
+    canvas.Circle(disp->GetBody().GetShape(), "yellow", "yellow");
+  }
+  for (auto *org : orgs) {
+    canvas.Circle(org->GetBody().GetShape(), color_map[org->GetGenomeID()], color_map[org->GetGenomeID()]);
+  }
+  for (auto *res : reses) {
+    canvas.Circle(res->GetBody().GetShape(), color_map[res->GetResourceID()], color_map[res->GetResourceID()]);
+  }
 }
 
 class EvoInPhysicsInterface {
@@ -89,6 +97,7 @@ class EvoInPhysicsInterface {
     // Aliases
     using Organism_t = SimpleOrganism;
     using Resource_t = SimpleResource;
+    using Dispenser_t = SimpleResourceDispenser;
     using World_t = emp::evo::SimplePhysicsWorld;
 
     emp::Random *random;
@@ -312,7 +321,7 @@ class EvoInPhysicsInterface {
       if (random != nullptr) delete random; // World does not own *random. Delete it.
       random = new emp::Random(random_seed);
       world = new World_t(world_width, world_height, random, surface_friction, max_pop_size,
-                          genome_length, cost_of_repro, resource_value);
+                          genome_length, cost_of_repro, resource_value, max_resource_age);
       // Setup world view canvs.
       world_view.ClearChildren();
       world_view << web::Canvas(world_width, world_height, "simple-world-canvas") << "<br>";
@@ -336,6 +345,29 @@ class EvoInPhysicsInterface {
       ancestor->SetBirthTime(-1);
       ancestor->UpdateGenomeID();
       world->AddOrg(ancestor);
+
+      // Add a dispenser: // TODO: parameterize
+      int dispenser_rad = 25;
+      Dispenser_t *dispenser = new Dispenser_t(emp::Circle(emp::Point(dispenser_rad * 2, world_height / 2.0), dispenser_rad));
+      dispenser->SetDispenseRate(10);
+      dispenser->SetDispenseAmount(5);
+      dispenser->SetResourceValue(1.0);
+      dispenser->SetDispenseStartAngleDeg(0);
+      dispenser->SetDispenseEndAngleDeg(180);
+      dispenser->SetResourceRadius(resource_radius);
+      dispenser->SetAffinity(emp::BitVector(genome_length, 1));
+
+      Dispenser_t *dispenser2 = new Dispenser_t(emp::Circle(emp::Point(world_width - (dispenser_rad * 2), world_height / 2.0), dispenser_rad));
+      dispenser2->SetDispenseRate(10);
+      dispenser2->SetDispenseAmount(5);
+      dispenser2->SetResourceValue(1.0);
+      dispenser2->SetDispenseStartAngleDeg(180);
+      dispenser2->SetDispenseEndAngleDeg(360);
+      dispenser2->SetResourceRadius(resource_radius);
+      dispenser2->SetAffinity(emp::BitVector(genome_length, 0));
+
+      world->AddDispenser(dispenser);
+      world->AddDispenser(dispenser2);
     }
 
     // Single animation step for this interface.
