@@ -15,6 +15,7 @@
 #include "web/init.h"
 #include "web/JSWrap.h"
 #include "web/Document.h"
+#include "web/Animate.h"
 #include "web/web.h"
 #include "web/d3/visualizations.h"
 #include "web/d3/dataset.h"
@@ -28,6 +29,7 @@
 // [ ] Put in place safety features
 //    [ ] What if we've knocked out the entire program?
 //    [ ] Protect vis functions from getting called in unexpected order.
+// [ ] Parameterize everything.
 
 
 using event_lib_t = typename emp::EventDrivenGP::event_lib_t;
@@ -45,8 +47,8 @@ constexpr size_t DIST_SYS_HEIGHT = 5;
 constexpr size_t DIST_SYS_SIZE = DIST_SYS_WIDTH * DIST_SYS_HEIGHT;
 
 constexpr size_t TRAIT_ID__ROLE_ID = 0;
-constexpr size_t TRAIT_ID__X_LOC = 0;
-constexpr size_t TRAIT_ID__Y_LOC = 0;
+constexpr size_t TRAIT_ID__X_LOC = 1;
+constexpr size_t TRAIT_ID__Y_LOC = 2;
 
 constexpr size_t CPU_SIZE = emp::EventDrivenGP::CPU_SIZE;
 constexpr size_t MAX_INST_ARGS = emp::EventDrivenGP::MAX_INST_ARGS;
@@ -205,21 +207,15 @@ namespace emp {
 namespace web {
 
 // @amlalejini - NOTE: This is inspired by/mirrors Emily's D3Visualizations from web/d3/visualizations.h
-class EventDrivenGP_Roles_LSVis : public D3Visualization {
+class EventDrivenGP_ProgramVis : public D3Visualization {
 public:
   // struct Inst { // @amlalejini - TODO: Ask how this works...
   //   EMP_BUILD_INTROSPECTIVE_TUPLE( int, position,
   //                                  int, function)
   // };
-  struct HardwareDatum {
-    EMP_BUILD_INTROSPECTIVE_TUPLE(int, role_id,
-                                  int, loc
-                                )
-  };
 
 protected:
 
-  Ptr<Random> random;
   std::map<std::string, program_t> program_map;     // Map of available programs.
   Ptr<program_t> cur_program;                       // Program built from program data.
   std::string display_program;
@@ -313,7 +309,7 @@ protected:
     emp_assert(program_data);
     std::cout << "Draw Program" << std::endl;
     D3::Selection * svg = GetSVG();
-    // Pro tip: can do all of the drawing in JS
+    // Do all of the drawing in JS
     EM_ASM_ARGS({
       var on_inst_click = function(inst, i) {
         emp.knockout_inst(inst.function, inst.position);
@@ -425,7 +421,6 @@ protected:
        func_blk_width
     );
 
-    //svg->SelectAll(".program-instruction").On("click", on_inst_click);
   }
 
 public:
@@ -442,9 +437,9 @@ public:
   // ]
   //
   Ptr<D3::JSONDataset> program_data;
-  emp::vector<HardwareDatum> deme_data;
+  // emp::vector<HardwareDatum> deme_data;
 
-  EventDrivenGP_Roles_LSVis(int width, int height) : D3Visualization(width, height) {
+  EventDrivenGP_ProgramVis(int width, int height) : D3Visualization(width, height) {
 
   }
 
@@ -492,6 +487,8 @@ public:
     cur_program->PrintProgram();
   }
 
+  Ptr<program_t> GetCurProgram() { return cur_program; }
+
   void AddProgram(const std::string & _name, const program_t & _program) {
     std::cout << "Adding program: " << _name << std::endl;
     program_map.emplace(_name, _program);
@@ -502,7 +499,7 @@ public:
 
   }
 
-  void Run(std::string name = "") {
+  void Start(std::string name = "") {
     std::cout << "Run" << std::endl;
     if (name == "")
       std::cout << "Run w/defaults....(TODO)" << std::endl;
@@ -512,7 +509,101 @@ public:
       this->pending_funcs.Add([this, name]() { DisplayProgram(name); });
     }
   }
+};
 
+class EventDrivenGP_DemeVis : public D3Visualization {
+public:
+  struct HardwareDatum {
+    EMP_BUILD_INTROSPECTIVE_TUPLE(int, role_id,
+                                  int, loc
+                                )
+  };
+
+private:
+  double y_margin;
+  double x_margin;
+  double cell_size = 100;
+
+  emp::vector<HardwareDatum> deme_data;
+
+  void InitializeVariables() {
+    std::cout << "DemeVis Init vars" << std::endl;
+    GetSVG()->Move(0, 0);
+  }
+
+
+public:
+  EventDrivenGP_DemeVis(int width, int height) : D3Visualization(width, height) {
+
+  }
+
+  void Setup() {
+    std::cout << "Deme vis setup running." << std::endl;
+    InitializeVariables();
+    this->init = true;
+    this->pending_funcs.Run();
+  }
+
+  // std::function<int(HardwareDatum)> GetX = [this](HardwareDatum n) {
+  //   return cell_size*(n.loc() % grid_width);
+  // };
+  //
+  // std::function<int(HardwareDatum)> GetY = [this](HardwareDatum n) {
+  //   return cell_size*(n.loc() / grid_width);
+  // };
+
+  void Start(emp::Ptr<Deme> deme) {
+    std::cout << "Deme vis start" << std::endl;
+    if (this->init) {
+      DrawDeme(deme);
+    } else {
+      this->pending_funcs.Add([this, deme]() { DrawDeme(deme); });
+    }
+  }
+
+  void DrawDeme(emp::Ptr<Deme> deme) {
+    emp_assert(deme);
+    // Resize deme data to match deme size.
+    deme_data.resize(deme->grid.size());
+    for (size_t i = 0; i < deme_data.size(); ++i) {
+      deme_data[i].role_id(deme->grid[i]->GetTrait(TRAIT_ID__ROLE_ID));
+      deme_data[i].loc(i);
+    }
+    D3::Selection * svg = GetSVG();
+    svg->SelectAll("g").Remove(); // Clean up old deme elements.
+    svg->SelectAll("g").Data(deme_data)
+                       .EnterAppend("g")
+                       .SetAttr("class", "deme_cell");
+    EM_ASM_ARGS({
+      var svg = js.objects[$0];
+      var deme_width = $1;
+      var deme_height = $2;
+      var cell_size = $3;
+
+      var cells = svg.selectAll("g");
+      cells.attr({"transform": function(d, i) {
+                      var x_trans = cell_size * (d.loc % deme_width);
+                      var y_trans = cell_size * Math.floor(d.loc / deme_width);
+                      return "translate(" + x_trans + "," + y_trans + ")";
+                    }
+                  });
+      cells.append("rect")
+           .attr({
+             "width": cell_size,
+             "height": cell_size,
+             "fill": "white",
+             "stroke": "black"
+           });
+      cells.append("text")
+            .attr({"y": cell_size / 2,
+                   "dy": "0.5em",
+                   "pointer-events": "none"
+                 })
+            .text(function(d, i) { return "Role-ID: " + d.role_id;});
+
+    }, svg->GetID(), deme->GetWidth(), deme->GetHeight(), cell_size);
+
+  }
 
 };
 
@@ -532,23 +623,34 @@ private:
   size_t deme_height;
   size_t deme_size;
   size_t deme_eval_time;
+  size_t cur_time;
 
   // Interface-specific objects.
-  web::EventDrivenGP_Roles_LSVis visualization;
+  web::EventDrivenGP_ProgramVis program_vis;
+  web::EventDrivenGP_DemeVis deme_vis;
 
-  web::Document vis_doc;
+  web::Document program_vis_doc;
+  web::Document deme_vis_doc;
   web::Document vis_dash;
+
+  // Animation
+  web::Animate anim;
 
   // Simulation/evaluation objects.
   emp::Ptr<Deme> eval_deme;
+  emp::Ptr<Agent> eval_agent;
 
 public:
   Application()
     : random(),
-      visualization(100, 100),
-      vis_doc("program-vis"),
+      program_vis(1000, 1000),
+      deme_vis(1000, 1000),
+      program_vis_doc("program-vis"),
+      deme_vis_doc("deme-vis"),
       vis_dash("vis-dashboard"),
-      eval_deme()
+      anim([this]() { Application::Animate(anim); } ),
+      eval_deme(),
+      eval_agent()
   {
 
     // Localize parameter values.
@@ -557,6 +659,7 @@ public:
     deme_height = DIST_SYS_HEIGHT;
     deme_size = deme_width * deme_height;
     deme_eval_time = EVAL_TIME;
+    cur_time = 0;
     // Create random number generator.
     random = emp::NewPtr<emp::Random>(random_seed);
     // Confiigure instruction set/event library.
@@ -571,9 +674,11 @@ public:
     eval_deme = emp::NewPtr<Deme>(random, deme_width, deme_height, event_lib, inst_lib);
 
     // Add program visualization to page.
-    vis_doc << visualization;
+    program_vis_doc << program_vis;
+    deme_vis_doc << deme_vis;
     // Add dashboard components to page.
-    vis_dash << web::Button([this]() { visualization.BuildCurProgram(); }, "Run", "run_program_but");
+    vis_dash << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but");
+    vis_dash << "Update: " << web::Live([this]() { return this->cur_time; });
     auto run_button = vis_dash.Button("run_program_but");
 
     // Configure program visualization.
@@ -581,14 +686,58 @@ public:
     program_t test_program(inst_lib);
     test_program.PushFunction(fun_t());
     for (size_t i=0; i < 5; ++i) test_program.PushInst("Nop");
+    test_program.PushInst("GetXLoc", 0);
+    test_program.PushInst("SetRoleID", 0);
     test_program.PushFunction(fun_t());
     for (size_t i=0; i < 5; ++i) test_program.PushInst("Nop");
     test_program.PushInst("Call", 0, 0, 0, affinity_t());
     test_program.PushInst("Inc", 1);
     test_program.PushInst("Add", 0, 1, 5);
-    visualization.AddProgram("Test", test_program);
+    program_vis.AddProgram("Test", test_program);
+    //
+
     // Start the visualization.
-    visualization.Run("Test");
+    program_vis.Start("Test");
+    // Configure deme visualization.
+    deme_vis.Start(eval_deme);
+  }
+
+  void DoFinishEval() {
+    std::cout << "Finish eval" << std::endl;
+    anim.Stop();
+    eval_deme->Print();
+  }
+
+  void Animate(const web::Animate & anim) {
+    std::cout << "Cur time: " << cur_time << std::endl;
+    if (cur_time >= deme_eval_time) {
+      DoFinishEval();
+      return;
+    }
+    eval_deme->SingleAdvance();
+    ++cur_time;
+    vis_dash.Redraw();
+    deme_vis.DrawDeme(eval_deme);
+  }
+
+  void RunCurProgram() {
+    std::cout << "Run cur program!" << std::endl;
+    if (anim.GetActive()) anim.Stop();
+    // Build current program.
+    program_vis.BuildCurProgram();
+    emp::Ptr<program_t> cur_prog = program_vis.GetCurProgram();
+    if (cur_prog->GetSize() == 0) {
+      std::cout << "Warning! Empty program!" << std::endl;
+      return;
+    }
+    // Configure eval agent.
+    if (eval_agent) eval_agent.Delete();
+    eval_agent = emp::NewPtr<Agent>(*cur_prog);
+    cur_time = 0;
+    // Load eval agent into deme.
+    eval_deme->LoadAgent(eval_agent);
+    // Evaluate deme.
+    anim.Start();
   }
 
 };
@@ -598,5 +747,6 @@ emp::Ptr<Application> app;
 int main(int argc, char *argv[]) {
   emp::Initialize();
   app = emp::NewPtr<Application>();
+  std::cout << "Right below app init." << std::endl;
   return 0;
 }
