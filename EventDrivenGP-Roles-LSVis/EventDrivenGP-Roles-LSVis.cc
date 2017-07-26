@@ -2,6 +2,8 @@
 #include <iostream>
 #include <sstream>
 #include <map>
+#include <unordered_set>
+#include <set>
 #include <string>
 #include <utility>
 #include "base/Ptr.h"
@@ -21,6 +23,8 @@
 // [ ] Switch to using linear scales
 // [ ] Make sizing of everything dynamic
 // [ ] Wrap x/y/text things in named functions
+// [ ] Move all styling to SCSS
+// [ ] Beautify (with SASS)
 
 using event_lib_t = typename emp::EventDrivenGP::event_lib_t;
 using inst_lib_t = typename::emp::EventDrivenGP::inst_lib_t;
@@ -53,14 +57,28 @@ protected:
   double inst_blk_width = 150;
   double func_blk_width = 200;
 
+  std::set<std::pair<int, int>> inst_knockouts;
+  std::set<int> func_knockouts;
 
 
   std::function<void(int, int)> knockout_inst = [this](int fp, int ip) {
-    std::cout << "Knockout an instruction: " << fp << ", " << ip << std::endl;
+    std::pair<int, int> inst_loc(fp, ip);
+    std::cout << "Knockout an instruction: " << inst_loc.first << ", " << inst_loc.second << std::endl;
+    if (inst_knockouts.count(inst_loc))
+      inst_knockouts.erase(inst_loc);
+    else
+      inst_knockouts.insert(inst_loc);
+    std::cout << "inst_knockouts:" << std::endl;
+    for (auto thing : inst_knockouts) {
+      std::cout << "  " << thing.first << " " << thing.second << std::endl;
+    }
   };
 
   std::function<void(int)> knockout_func = [this](int fp) {
-    std::cout << "Knockout a function:" << fp << std::endl;
+    if (func_knockouts.count(fp))
+      func_knockouts.erase(fp);
+    else
+      func_knockouts.insert(fp);
   };
 
   void InitializeVariables() {
@@ -111,6 +129,8 @@ protected:
   void DisplayProgram(std::string name) {
     emp_assert(Has(program_map, name));
     std::cout << "Display program: " << name << std::endl;
+    // Reset knockouts
+    ResetKnockouts();
     // Set program data to correct program
     SetProgramData(name);
     // Draw program from program data.
@@ -126,9 +146,22 @@ protected:
     EM_ASM_ARGS({
       var on_inst_click = function(inst, i) {
         emp.knockout_inst(inst.function, inst.position);
+        var inst_blk = d3.select(this);
+        if (inst_blk.attr("knockout") == "false") inst_blk.attr("knockout", "true");
+        else inst_blk.attr("knockout", "false");
       };
+
       var on_func_click = function(func, i) {
         emp.knockout_func(i);
+        var func_def = d3.select(this);
+        if (func_def.attr("knockout") == "false") {
+          func_def.attr("knockout", "true");
+          d3.select(this.parentNode).attr("knockout", "true");
+        } else {
+          func_def.attr("knockout", "false");
+          d3.select(this.parentNode).attr("knockout", "false");
+        }
+
       };
       var program_data = js.objects[$0][0];
       var svg = js.objects[$1];
@@ -151,6 +184,7 @@ protected:
       functions.enter().append("g");
       functions.exit().remove();
       functions.attr({"class": "program-function",
+                      "knockout": "false",
                       "transform": function(func, fID) {
                         var x_trans = 0;
                         var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
@@ -162,7 +196,8 @@ protected:
                  "width": fblk_w,
                  "height": iblk_h,
                  "fill": "green",
-                 "stroke": "black"
+                 "stroke": "black",
+                 "knockout": "false"
                })
                .on("click", on_func_click);
       functions.append("text")
@@ -186,19 +221,21 @@ protected:
                             var y_trans = (iblk_h + i * iblk_h);
                             return "translate(" + x_trans + "," + y_trans + ")";
                           }});
-        instructions.on("click", on_inst_click);
         instructions.append("rect")
                     .attr({
                       "width": iblk_w,
                       "height": iblk_h,
                       "fill": "blue",
-                      "stroke": "black"
-                    });
+                      "stroke": "black",
+                      "knockout": "false"
+                    })
+                    .on("click", on_inst_click);
         instructions.append("text")
                     .attr({
                       "x": 0,
                       "y": iblk_h / 2,
-                      "dy": "0.5em"
+                      "dy": "0.5em",
+                      "pointer-events": "none"
                     })
                     .text(function(d, i) {
                       var inst_str = d.name;
@@ -244,6 +281,11 @@ public:
     InitializeVariables();
     this->init = true;
     this->pending_funcs.Run();
+  }
+
+  void ResetKnockouts() {
+    inst_knockouts.clear();
+    func_knockouts.clear();
   }
 
   Ptr<D3::JSONDataset> GetDataset() { return program_data; }

@@ -12,6 +12,30 @@
     <div id="program-vis">
     </div>
 
+    <style>
+      .program-instruction > rect[knockout="true"] {
+        stroke-width:10px;
+        z-index:100;
+      }
+      .program-instruction > rect[knockout="false"] {
+        stroke-width:1px;
+        z-index:1;
+      }
+
+      .program-function > rect[knockout="true"] {
+        stroke-width:10px;
+      }
+      .program-function > rect[knockout="false"] {
+        stroke-width:1px;
+      }
+
+      .program-function[knockout="true"] > .program-instruction > rect {
+        stroke-width:10px;
+        z-index:100;
+      }
+
+    </style>
+
   </body>
   <script src="jquery-1.11.2.min.js"></script>
   <script src="https://d3js.org/d3.v3.min.js"></script>
