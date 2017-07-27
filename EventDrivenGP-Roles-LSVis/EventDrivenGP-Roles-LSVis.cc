@@ -345,7 +345,8 @@ protected:
       }
       // Reconfigure vis size based on program data.
       svg.attr({"width": fblk_w, "height": prg_h});
-
+      // Set program name.
+      d3.select("#program-vis-head").text("Program: " + prg_name);
       // Add a group for each function.
       var functions = svg.selectAll("g").data(program_data["functions"]);
       functions.enter().append("g");
@@ -357,7 +358,6 @@ protected:
                         var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
                         return "translate(" + x_trans + "," + y_trans + ")";
                       }});
-      //var definitions = functions.append("g").attr({"class": "program-function-definition"});
       functions.append("rect")
                .attr({
                  "width": fblk_w,
@@ -543,14 +543,6 @@ public:
     this->init = true;
     this->pending_funcs.Run();
   }
-
-  // std::function<int(HardwareDatum)> GetX = [this](HardwareDatum n) {
-  //   return cell_size*(n.loc() % grid_width);
-  // };
-  //
-  // std::function<int(HardwareDatum)> GetY = [this](HardwareDatum n) {
-  //   return cell_size*(n.loc() / grid_width);
-  // };
 
   void Start(emp::Ptr<Deme> deme) {
     std::cout << "Deme vis start" << std::endl;

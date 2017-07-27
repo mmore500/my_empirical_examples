@@ -3,19 +3,75 @@
   <head>
     <meta charset="utf-8">
     <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet" integrity="sha256-7s5uDGW3AHqw6xtJmNNtr+OBRJUlgkNJEo78P4b0yRw= sha512-nNo+yCHEyn0smMxSswnf/OnX6/KwJuZTlNZBjauKhTK0c+zT+q5JOCx0UFhXQ6rJR9jg6Es8gPuD2uZcYDLqSw==" crossorigin="anonymous">
-    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
-    <!-- <link rel="stylesheet" type="text/css" href="scss/onemax.css"/> -->
+    <link rel="stylesheet" type="text/css" href="css/bootstrap_css/bootstrap.min.css"/>
+    <link rel="stylesheet" type="text/css" href="css/main.css"/>
     <title>Role-ID Landscape Visualization</title>
   </head>
   <body>
 
-    <div id="vis-dashboard">
+    <!-- Visualization heading -->
+    <div class="jumbotron">
+      <h1 class="display-4">Knockout Explorer</h1>
+      <p class="lead">EventDrivenGP::Role-ID Task</p>
     </div>
 
-    <div id="program-vis">
-    </div>
+    <div class="container-fluid">
 
-    <div id="deme-vis">
+      <div class="row">
+
+        <div class="col-4">
+          <div class="card">
+            <div class="card-header" id="program-vis-head">
+            </div>
+            <div class="card-block">
+              <div id="program-vis">
+                <!-- C++ will fill out. -->
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-8">
+
+          <div class="row">
+
+            <div class="col">
+              <div class="card">
+                <div class="card-header">
+                  Dashboard
+                </div>
+                <div class="card-block">
+                  <div id="vis-dashboard">
+                    <!-- C++ will fill out. -->
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="row">
+
+            <div class="col">
+              <div class="card">
+                <div class="card-header">
+                  Deme Viewer
+                </div>
+                <div class="card-block">
+                  <div id="deme-vis">
+                    <!-- C++ will fill out. -->
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+
     </div>
 
     <style>
@@ -43,8 +99,9 @@
     </style>
 
   </body>
-  <script src="jquery-1.11.2.min.js"></script>
+  <script src="js/jquery-1.11.2.min.js"></script>
+  <script src="js/tether.min.js"></script>
+  <script src="js/bootstrap_js/bootstrap.min.js"></script>
   <script src="https://d3js.org/d3.v3.min.js"></script>
-  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
-  <script type="text/javascript" src="EventDrivenGP-Roles-LSVis.js"></script>
+  <script type="text/javascript" src="js/EventDrivenGP-Roles-LSVis.js"></script>
 </html>
