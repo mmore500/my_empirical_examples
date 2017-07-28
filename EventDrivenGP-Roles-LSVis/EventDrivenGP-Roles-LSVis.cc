@@ -208,11 +208,6 @@ namespace web {
 
 // @amlalejini - NOTE: This is inspired by/mirrors Emily's D3Visualizations from web/d3/visualizations.h
 class EventDrivenGP_ProgramVis : public D3Visualization {
-public:
-  // struct Inst { // @amlalejini - TODO: Ask how this works...
-  //   EMP_BUILD_INTROSPECTIVE_TUPLE( int, position,
-  //                                  int, function)
-  // };
 
 protected:
 
@@ -333,10 +328,21 @@ protected:
       var program_data = js.objects[$0][0];
       var svg = js.objects[$1];
       var prg_name = program_data["name"];
-      var iblk_h = $2;
-      var iblk_w = $3;
-      var fblk_w = $4;
+      var iblk_h = 30;
+      var iblk_w = 75;
+      var fblk_w = 100;
+      // var iblk_h = $2;
+      // var iblk_w = $3;
+      // var fblk_w = $4;
       var iblk_lpad = fblk_w - iblk_w;
+
+      // var x_margin = 5;
+      //var vis_w = $("#program-vis").width;
+      var vis_w = d3.select("#program-vis")[0][0].clientWidth;
+      var x_domain = Array(0, 100);
+      var x_range = Array(0, vis_w);
+      var xScale = d3.scale.linear().domain(x_domain).range(x_range);
+
       // Compute program display height.
       // @amlalejini - TODO: make this a function.
       var prg_h = program_data["functions"].length * iblk_h;
@@ -344,7 +350,7 @@ protected:
         prg_h += program_data["functions"][fID].sequence_len * iblk_h;
       }
       // Reconfigure vis size based on program data.
-      svg.attr({"width": fblk_w, "height": prg_h});
+      svg.attr({"width": xScale(fblk_w), "height": prg_h});
       // Set program name.
       d3.select("#program-vis-head").text("Program: " + prg_name);
       // Add a group for each function.
@@ -354,13 +360,13 @@ protected:
       functions.attr({"class": "program-function",
                       "knockout": "false",
                       "transform": function(func, fID) {
-                        var x_trans = 0;
+                        var x_trans = xScale(0);
                         var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
                         return "translate(" + x_trans + "," + y_trans + ")";
                       }});
       functions.append("rect")
                .attr({
-                 "width": fblk_w,
+                 "width": xScale(fblk_w),
                  "height": iblk_h,
                  "fill": "green",
                  "stroke": "black",
@@ -384,24 +390,24 @@ protected:
         instructions.attr({
                           "class": "program-instruction",
                           "transform": function(d, i) {
-                            var x_trans = iblk_lpad;
+                            var x_trans = xScale(iblk_lpad);
                             var y_trans = (iblk_h + i * iblk_h);
                             return "translate(" + x_trans + "," + y_trans + ")";
                           }});
         instructions.append("rect")
                     .attr({
-                      "width": iblk_w,
+                      "width": function(d) { d.w = xScale(iblk_w); return d.w; },
                       "height": iblk_h,
                       "fill": "blue",
                       "stroke": "black",
                       "knockout": "false"
                     })
                     .on("click", on_inst_click);
+        var min_fsize = -1;
         instructions.append("text")
                     .attr({
-                      "x": 0,
-                      "y": iblk_h / 2,
-                      "dy": "0.5em",
+                      "x": 2,
+                      "y": iblk_h,
                       "pointer-events": "none"
                     })
                     .text(function(d, i) {
@@ -409,10 +415,27 @@ protected:
                       if (d.has_affinity) inst_str += " " + d.affinity;
                       for (arg = 0; arg < d.num_args; arg++) inst_str += " " + d.args[arg];
                       return inst_str;
+                    })
+                    .style("font-size", "1px")
+                    .each(function(d) {
+                      var box = this.getBBox();
+                      var pbox = this.parentNode.getBBox();
+                      var fsize = Math.min(pbox.width/box.width, pbox.height/box.height)*0.9;
+                      if (min_fsize == -1 || fsize < min_fsize) {
+                        min_fsize = fsize;
+                      }
+                    })
+                    .style("font-size", min_fsize)
+                    .each(function(d) {
+                      var box = this.getBBox();
+                      var pbox = this.parentNode.getBBox();
+                      d.shift = ((pbox.height - box.height)/2);
+                    })
+                    .attr({
+                      "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
                     });
 
       });
-
 
     }, program_data->GetID(),
        svg->GetID(),
@@ -635,8 +658,8 @@ private:
 public:
   Application()
     : random(),
-      program_vis(1000, 1000),
-      deme_vis(1000, 1000),
+      program_vis(1, 1),
+      deme_vis(1, 1),
       program_vis_doc("program-vis"),
       deme_vis_doc("deme-vis"),
       vis_dash("vis-dashboard"),
@@ -672,6 +695,7 @@ public:
     vis_dash << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but");
     vis_dash << "Update: " << web::Live([this]() { return this->cur_time; });
     auto run_button = vis_dash.Button("run_program_but");
+    run_button.SetAttr("class", "btn btn-primary");
 
     // Configure program visualization.
     // Test program.

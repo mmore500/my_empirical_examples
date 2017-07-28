@@ -1,0 +1,20 @@
+
+.program-function {
+  text {
+    fill:$fun-txt-color;
+  }
+  rect {
+    stroke:black;
+    fill:$fun-def-color;
+  }
+}
+
+.program-instruction {
+  text {
+    fill:$inst-txt-color;
+  }
+  rect {
+    stroke:black;
+    fill:$inst-def-color;
+  }
+}

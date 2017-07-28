@@ -1,3 +1,13 @@
+.program-function text {
+  fill: white; }
+.program-function rect {
+  stroke: black;
+  fill: #123652; }
 
+.program-instruction text {
+  fill: white; }
+.program-instruction rect {
+  stroke: black;
+  fill: #294F6D; }
 
 /*# sourceMappingURL=main.css.map */
