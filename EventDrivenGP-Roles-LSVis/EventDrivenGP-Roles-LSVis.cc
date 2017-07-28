@@ -243,11 +243,11 @@ protected:
 
   void InitializeVariables() {
     std::cout << "Init vars" << std::endl;
-    //JSWrap(on_inst_click, GetID() + "on_inst_click");
     JSWrap(knockout_func, "knockout_func");
     JSWrap(knockout_inst, "knockout_inst");
-    // JSWrap([this](){this->BuildCurProgram();}, "build_program");
-    std::cout << GetID() << std::endl;
+    JSWrap([this](){ return this->program_data->GetID(); }, "get_prog_data_obj_id");
+    JSWrap([this](){ return this->GetSVG()->GetID(); }, "get_prog_vis_svg_obj_id");
+    EM_ASM({ window.addEventListener("resize", resizeProgVis); });
     GetSVG()->Move(0, 0);
   }
 
@@ -301,43 +301,20 @@ protected:
 
   // @amlalejini - TODO
   void DrawProgram() {
-    emp_assert(program_data);
-    std::cout << "Draw Program" << std::endl;
-    D3::Selection * svg = GetSVG();
-    // Do all of the drawing in JS
-    EM_ASM_ARGS({
-      var on_inst_click = function(inst, i) {
-        emp.knockout_inst(inst.function, inst.position);
-        var inst_blk = d3.select(this);
-        if (inst_blk.attr("knockout") == "false") inst_blk.attr("knockout", "true");
-        else inst_blk.attr("knockout", "false");
-      };
-
-      var on_func_click = function(func, i) {
-        emp.knockout_func(i);
-        var func_def = d3.select(this);
-        if (func_def.attr("knockout") == "false") {
-          func_def.attr("knockout", "true");
-          d3.select(this.parentNode).attr("knockout", "true");
-        } else {
-          func_def.attr("knockout", "false");
-          d3.select(this.parentNode).attr("knockout", "false");
-        }
-
-      };
-      var program_data = js.objects[$0][0];
-      var svg = js.objects[$1];
+    if (!program_data) return;
+    EM_ASM({
+      var program_data_obj_id = emp.get_prog_data_obj_id();
+      var svg_obj_id = emp.get_prog_vis_svg_obj_id();
+      if (program_data_obj_id == 255) return; // TODO: make this more robust.
+      var program_data = js.objects[program_data_obj_id][0];
+      var svg = js.objects[svg_obj_id];
       var prg_name = program_data["name"];
-      var iblk_h = 30;
+      var iblk_h = 20;
       var iblk_w = 75;
       var fblk_w = 100;
-      // var iblk_h = $2;
-      // var iblk_w = $3;
-      // var fblk_w = $4;
       var iblk_lpad = fblk_w - iblk_w;
+      var txt_lpad = 2;
 
-      // var x_margin = 5;
-      //var vis_w = $("#program-vis").width;
       var vis_w = d3.select("#program-vis")[0][0].clientWidth;
       var x_domain = Array(0, 100);
       var x_range = Array(0, vis_w);
@@ -350,6 +327,7 @@ protected:
         prg_h += program_data["functions"][fID].sequence_len * iblk_h;
       }
       // Reconfigure vis size based on program data.
+      svg.selectAll("*").remove();
       svg.attr({"width": xScale(fblk_w), "height": prg_h});
       // Set program name.
       d3.select("#program-vis-head").text("Program: " + prg_name);
@@ -364,27 +342,46 @@ protected:
                         var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
                         return "translate(" + x_trans + "," + y_trans + ")";
                       }});
+      var min_fsize = -1;
+      functions.selectAll(".function-def-rect").remove();
+      functions.selectAll(".function-def-txt").remove();
       functions.append("rect")
                .attr({
+                 "class": "function-def-rect",
                  "width": xScale(fblk_w),
                  "height": iblk_h,
-                 "fill": "green",
-                 "stroke": "black",
                  "knockout": "false"
                })
                .on("click", on_func_click);
       functions.append("text")
                .attr({
-                 "x": 0,
-                 "y": iblk_h / 2,
-                 "dy": ".5em",
+                 "class": "function-def-txt",
+                 "x": txt_lpad,
+                 "y": iblk_h,
                  "pointer-events": "none"
                })
-               .text(function(func, fID) { return "fn-" + fID + " " + func.affinity + ":"; });
-
+               .text(function(func, fID) { return "fn-" + fID + " " + func.affinity + ":"; })
+               .style("font-size", "1px")
+               .each(function(d) {
+                 var box = this.getBBox();
+                 var pbox = this.parentNode.getBBox();
+                 var fsize = Math.min(pbox.width/box.width, pbox.height/box.height)*0.9;
+                 if (min_fsize == -1 || fsize < min_fsize) {
+                   min_fsize = fsize;
+                 }
+               })
+               .style("font-size", min_fsize)
+               .each(function(d) {
+                 var box = this.getBBox();
+                 var pbox = this.parentNode.getBBox();
+                 d.shift = ((pbox.height - box.height)/2);
+               })
+               .attr({
+                 "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
+               });
       // Draw instructions for each function.
       functions.each(function(func, fID) {
-        instructions = d3.select(this).selectAll("g").data(func.sequence);
+        var instructions = d3.select(this).selectAll("g").data(func.sequence);
         instructions.enter().append("g");
         instructions.exit().remove();
         instructions.attr({
@@ -398,15 +395,13 @@ protected:
                     .attr({
                       "width": function(d) { d.w = xScale(iblk_w); return d.w; },
                       "height": iblk_h,
-                      "fill": "blue",
-                      "stroke": "black",
                       "knockout": "false"
                     })
                     .on("click", on_inst_click);
         var min_fsize = -1;
         instructions.append("text")
                     .attr({
-                      "x": 2,
+                      "x": txt_lpad,
                       "y": iblk_h,
                       "pointer-events": "none"
                     })
@@ -434,16 +429,9 @@ protected:
                     .attr({
                       "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
                     });
-
       });
 
-    }, program_data->GetID(),
-       svg->GetID(),
-       inst_blk_height,
-       inst_blk_width,
-       func_blk_width
-    );
-
+    });
   }
 
 public:
@@ -460,7 +448,6 @@ public:
   // ]
   //
   Ptr<D3::JSONDataset> program_data;
-  // emp::vector<HardwareDatum> deme_data;
 
   EventDrivenGP_ProgramVis(int width, int height) : D3Visualization(width, height) {
 
@@ -513,7 +500,6 @@ public:
   Ptr<program_t> GetCurProgram() { return cur_program; }
 
   void AddProgram(const std::string & _name, const program_t & _program) {
-    std::cout << "Adding program: " << _name << std::endl;
     program_map.emplace(_name, _program);
   }
 
@@ -524,8 +510,7 @@ public:
 
   void Start(std::string name = "") {
     std::cout << "Run" << std::endl;
-    if (name == "")
-      std::cout << "Run w/defaults....(TODO)" << std::endl;
+    if (name == "") return;
     if (this->init) {
       DisplayProgram(name);
     } else {
@@ -551,6 +536,7 @@ private:
 
   void InitializeVariables() {
     std::cout << "DemeVis Init vars" << std::endl;
+    EM_ASM( window.addEventListener("resize", resizeDemeVis); );
     GetSVG()->Move(0, 0);
   }
 
@@ -591,9 +577,17 @@ public:
                        .SetAttr("class", "deme_cell");
     EM_ASM_ARGS({
       var svg = js.objects[$0];
+
       var deme_width = $1;
       var deme_height = $2;
-      var cell_size = $3;
+      var txt_lpad = 2;
+
+      //var cell_size = $3;
+
+      var vis_w = d3.select("#deme-vis")[0][0].clientWidth;
+      svg.attr({"deme-width": deme_width, "deme-height": deme_height, "width": vis_w, "height": vis_w});
+
+      var cell_size = vis_w / deme_width;
 
       var cells = svg.selectAll("g");
       cells.attr({"transform": function(d, i) {
@@ -609,12 +603,30 @@ public:
              "fill": "white",
              "stroke": "black"
            });
+      var min_fsize = -1;
       cells.append("text")
-            .attr({"y": cell_size / 2,
+            .attr({"y": cell_size,
+                   "x": txt_lpad,
                    "dy": "0.5em",
                    "pointer-events": "none"
                  })
-            .text(function(d, i) { return "Role-ID: " + d.role_id;});
+            .text(function(d, i) { return "ID::" + d.role_id;})
+            .style("font-size", "1px")
+            .each(function(d) {
+              var box = this.getBBox();
+              var pbox = this.parentNode.getBBox();
+              var fsize = Math.min(pbox.width/box.width, pbox.height/box.height)*0.9;
+              if (min_fsize == -1 || fsize < min_fsize) {
+                min_fsize = fsize;
+              }
+            })
+            .style("font-size", min_fsize)
+            .each(function(d) {
+              var box = this.getBBox();
+              var pbox = this.parentNode.getBBox();
+              d.shift = ((pbox.height - box.height)/2);
+            })
+            .attr({"dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }});
 
     }, svg->GetID(), deme->GetWidth(), deme->GetHeight(), cell_size);
 
@@ -692,8 +704,14 @@ public:
     program_vis_doc << program_vis;
     deme_vis_doc << deme_vis;
     // Add dashboard components to page.
-    vis_dash << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but");
-    vis_dash << "Update: " << web::Live([this]() { return this->cur_time; });
+    vis_dash << "<div class='row'>"
+             << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but")
+             << "</div>";
+    vis_dash << "<div class='row justify-content-center pad-top-row'>"
+             << "<div class='col'>"
+             << "<h3>Update: <span class=\"badge badge-default\">" << web::Live([this]() { return this->cur_time; }) << "</span></h3>"
+             << "</div>"
+             << "</div>";
     auto run_button = vis_dash.Button("run_program_but");
     run_button.SetAttr("class", "btn btn-primary");
 
@@ -714,6 +732,7 @@ public:
 
     // Start the visualization.
     program_vis.Start("Test");
+    program_vis.On("resize", [this]() { std::cout << "On program vis resize!" << std::endl; });
     // Configure deme visualization.
     deme_vis.Start(eval_deme);
   }

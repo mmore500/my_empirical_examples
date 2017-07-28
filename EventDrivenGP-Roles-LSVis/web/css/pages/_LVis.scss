@@ -1,4 +1,8 @@
 
+.pad-top-row {
+  margin-top:20px;
+}
+
 .program-function {
   text {
     fill:$fun-txt-color;
@@ -16,5 +20,28 @@
   rect {
     stroke:black;
     fill:$inst-def-color;
+  }
+}
+
+.program-instruction[knockout="true"] {
+  text {
+    fill:$inst-txt-color-ko;
+  }
+  rect {
+    stroke:black;
+    fill:$inst-def-color-ko;
+  }
+}
+
+.program-function[knockout="true"] {
+  text {
+    fill:$fun-txt-color-ko;
+  }
+  rect {
+    stroke:black;
+    fill:$fun-def-color-ko;
+  }
+  .program-instruction {
+    @extend .program-instruction[knockout="true"];
   }
 }

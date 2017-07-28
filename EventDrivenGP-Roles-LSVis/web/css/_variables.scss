@@ -5,4 +5,9 @@ $fun-def-color: #123652;
 $fun-txt-color: white;
 $inst-def-color: #294F6D;
 $inst-txt-color: white;
+
+$fun-def-color-ko: darken($fun-def-color, 25);
+$fun-txt-color-ko: darken($fun-txt-color, 25);
+$inst-def-color-ko: darken($inst-def-color, 25);
+$inst-txt-color-ko: darken($inst-txt-color, 25);
 // ==================================

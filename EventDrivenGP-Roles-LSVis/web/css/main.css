@@ -1,3 +1,6 @@
+.pad-top-row {
+  margin-top: 20px; }
+
 .program-function text {
   fill: white; }
 .program-function rect {
@@ -9,5 +12,17 @@
 .program-instruction rect {
   stroke: black;
   fill: #294F6D; }
+
+.program-instruction[knockout="true"] text, .program-function[knockout="true"] .program-instruction text {
+  fill: #bfbfbf; }
+.program-instruction[knockout="true"] rect, .program-function[knockout="true"] .program-instruction rect {
+  stroke: black;
+  fill: #060c10; }
+
+.program-function[knockout="true"] text {
+  fill: #bfbfbf; }
+.program-function[knockout="true"] rect {
+  stroke: black;
+  fill: black; }
 
 /*# sourceMappingURL=main.css.map */
