@@ -45,3 +45,9 @@
     @extend .program-instruction[knockout="true"];
   }
 }
+
+.deme_cell[knockout="true"] {
+  rect {
+    fill:$deme-cell-color-ko;
+  }
+}

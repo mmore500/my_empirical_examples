@@ -23,6 +23,20 @@ var on_func_click = function(func, i) {
   }
 };
 
+var on_deme_cell_click = function(d, i) {
+  emp.deme_cell_knockout(i);
+  var cell = d3.select(this.parentNode);
+  console.log(d);
+  console.log(cell);
+  if (!d.knockedout) {
+    cell.attr("knockout", "true");
+    d.knockedout = true;
+  } else {
+    cell.attr("knockout", "false");
+    d.knockedout = false;
+  }
+}
+
 // Ran into some weird bugs... just redraw the entire thing for now.
 var resizeProgVis = function() {
   // var prog_vis = d3.select("#program-vis");

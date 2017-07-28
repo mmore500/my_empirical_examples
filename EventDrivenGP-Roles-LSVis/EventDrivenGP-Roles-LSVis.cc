@@ -87,8 +87,10 @@ struct Deme {
   emp::Ptr<Agent> agent_ptr;
   bool agent_loaded;
 
+  std::unordered_set<size_t> knockouts;
+
   Deme(emp::Ptr<emp::Random> _rnd, size_t _w, size_t _h, emp::Ptr<event_lib_t> _elib, emp::Ptr<inst_lib_t> _ilib)
-    : grid(_w * _h), width(_w), height(_h), rnd(_rnd), event_lib(_elib), inst_lib(_ilib), agent_ptr(nullptr), agent_loaded(false) {
+    : grid(_w * _h), width(_w), height(_h), rnd(_rnd), event_lib(_elib), inst_lib(_ilib), agent_ptr(nullptr), agent_loaded(false), knockouts() {
     // Register dispatch function.
     event_lib->RegisterDispatchFun("Message", [this](hardware_t & hw_src, const event_t & event){ this->DispatchMessage(hw_src, event); });
     // Fill out the grid with hardware.
@@ -175,7 +177,7 @@ struct Deme {
   void SingleAdvance() {
     emp_assert(agent_loaded);
     for (size_t i = 0; i < grid.size(); ++i) {
-      grid[i]->SingleProcess();
+      if (!knockouts.count(i)) grid[i]->SingleProcess();
     }
   }
 
@@ -285,6 +287,90 @@ protected:
     p_data << "]}";
     program_data = NewPtr<D3::JSONDataset>();
     program_data->Append(p_data.str());
+  }
+
+public:
+  // Program data: [{
+  //  name: "prgm_name",
+  //  functions: [
+  //    {"affinity": "0000",
+  //     "sequence": [{"name": "inst_name", "has_affinity": bool, "affinity": "0000", "args": [...]}, {}, {}, ...]
+  //    },
+  //    {...},
+  //    ...
+  //   ]
+  // }
+  // ]
+  //
+  Ptr<D3::JSONDataset> program_data;
+
+  EventDrivenGP_ProgramVis(int width, int height) : D3Visualization(width, height) {
+
+  }
+
+  void Setup() {
+    std::cout << "LSVis setup getting run." << std::endl;
+    InitializeVariables();
+    this->init = true;
+    this->pending_funcs.Run();
+  }
+
+  void ResetKnockouts() {
+    inst_knockouts.clear();
+    func_knockouts.clear();
+  }
+
+  Ptr<D3::JSONDataset> GetDataset() { return program_data; }
+
+  // void LoadDataFromFile(std::string filename) {
+  //   if (this->init) {
+  //     program_data->LoadDataFromFile(filename, [this](){ std::cout << "On load?" << std::endl; });
+  //   } else {
+  //     this->pending_funcs.Add([this, filename]() {
+  //       program_data->LoadDataFromFile(filename, [this](){ std::cout << "On load?" << std::endl; });
+  //     });
+  //   }
+  // }
+
+  void BuildCurProgram() {
+    emp_assert(Has(program_map, display_program));
+    if (cur_program) cur_program.Delete();
+    const program_t & ref_program = program_map.at(display_program);
+    cur_program = NewPtr<program_t>(ref_program.inst_lib);
+    // Build cur_program up, knocking out appropriate functions/instructions
+    for (size_t fID = 0; fID < ref_program.GetSize(); ++fID) {
+      if (func_knockouts.count(fID)) continue;
+      fun_t new_fun = fun_t(ref_program[fID].affinity);
+      for (size_t iID = 0; iID < ref_program[fID].GetSize(); ++iID) {
+        if (inst_knockouts.count(std::make_pair<int, int>(fID, iID))) continue;
+        new_fun.inst_seq.emplace_back(ref_program[fID].inst_seq[iID]);
+      }
+      // Add new function to program if not empty.
+      if (new_fun.GetSize()) cur_program->PushFunction(new_fun);
+    }
+    std::cout << "Built program: " << std::endl;
+    cur_program->PrintProgram();
+  }
+
+  Ptr<program_t> GetCurProgram() { return cur_program; }
+
+  void AddProgram(const std::string & _name, const program_t & _program) {
+    program_map.emplace(_name, _program);
+  }
+
+  // @amlalejini - TODO
+  void Clear() {
+
+  }
+
+  void Start(std::string name = "") {
+    std::cout << "Run" << std::endl;
+    if (name == "") return;
+    if (this->init) {
+      DisplayProgram(name);
+    } else {
+      this->pending_funcs.Add([this, name]() { DisplayProgram(name); });
+    }
   }
 
   void DisplayProgram(const std::string & name) {
@@ -433,97 +519,14 @@ protected:
 
     });
   }
-
-public:
-  // Program data: [{
-  //  name: "prgm_name",
-  //  functions: [
-  //    {"affinity": "0000",
-  //     "sequence": [{"name": "inst_name", "has_affinity": bool, "affinity": "0000", "args": [...]}, {}, {}, ...]
-  //    },
-  //    {...},
-  //    ...
-  //   ]
-  // }
-  // ]
-  //
-  Ptr<D3::JSONDataset> program_data;
-
-  EventDrivenGP_ProgramVis(int width, int height) : D3Visualization(width, height) {
-
-  }
-
-  void Setup() {
-    std::cout << "LSVis setup getting run." << std::endl;
-    InitializeVariables();
-    this->init = true;
-    this->pending_funcs.Run();
-  }
-
-  void ResetKnockouts() {
-    inst_knockouts.clear();
-    func_knockouts.clear();
-  }
-
-  Ptr<D3::JSONDataset> GetDataset() { return program_data; }
-
-  // void LoadDataFromFile(std::string filename) {
-  //   if (this->init) {
-  //     program_data->LoadDataFromFile(filename, [this](){ std::cout << "On load?" << std::endl; });
-  //   } else {
-  //     this->pending_funcs.Add([this, filename]() {
-  //       program_data->LoadDataFromFile(filename, [this](){ std::cout << "On load?" << std::endl; });
-  //     });
-  //   }
-  // }
-
-  void BuildCurProgram() {
-    emp_assert(Has(program_map, display_program));
-    if (cur_program) cur_program.Delete();
-    const program_t & ref_program = program_map.at(display_program);
-    cur_program = NewPtr<program_t>(ref_program.inst_lib);
-    // Build cur_program up, knocking out appropriate functions/instructions
-    for (size_t fID = 0; fID < ref_program.GetSize(); ++fID) {
-      if (func_knockouts.count(fID)) continue;
-      fun_t new_fun = fun_t(ref_program[fID].affinity);
-      for (size_t iID = 0; iID < ref_program[fID].GetSize(); ++iID) {
-        if (inst_knockouts.count(std::make_pair<int, int>(fID, iID))) continue;
-        new_fun.inst_seq.emplace_back(ref_program[fID].inst_seq[iID]);
-      }
-      // Add new function to program if not empty.
-      if (new_fun.GetSize()) cur_program->PushFunction(new_fun);
-    }
-    std::cout << "Built program: " << std::endl;
-    cur_program->PrintProgram();
-  }
-
-  Ptr<program_t> GetCurProgram() { return cur_program; }
-
-  void AddProgram(const std::string & _name, const program_t & _program) {
-    program_map.emplace(_name, _program);
-  }
-
-  // @amlalejini - TODO
-  void Clear() {
-
-  }
-
-  void Start(std::string name = "") {
-    std::cout << "Run" << std::endl;
-    if (name == "") return;
-    if (this->init) {
-      DisplayProgram(name);
-    } else {
-      this->pending_funcs.Add([this, name]() { DisplayProgram(name); });
-    }
-  }
 };
 
 class EventDrivenGP_DemeVis : public D3Visualization {
 public:
   struct HardwareDatum {
     EMP_BUILD_INTROSPECTIVE_TUPLE(int, role_id,
-                                  int, loc
+                                  int, loc,
+                                  bool, knockedout
                                 )
   };
 
@@ -532,14 +535,23 @@ private:
   double x_margin;
   double cell_size = 100;
 
+  emp::Ptr<Deme> cur_deme;
   emp::vector<HardwareDatum> deme_data;
+
+  std::function<void(size_t)> knockout = [this](size_t id) {
+    if (!this->cur_deme) return;
+    if (this->cur_deme->knockouts.count(id))
+      this->cur_deme->knockouts.erase(id);
+    else
+      this->cur_deme->knockouts.insert(id);
+  };
 
   void InitializeVariables() {
     std::cout << "DemeVis Init vars" << std::endl;
+    JSWrap(knockout, "deme_cell_knockout");
     EM_ASM( window.addEventListener("resize", resizeDemeVis); );
     GetSVG()->Move(0, 0);
   }
-
 
 public:
   EventDrivenGP_DemeVis(int width, int height) : D3Visualization(width, height) {
@@ -564,11 +576,13 @@ public:
 
   void DrawDeme(emp::Ptr<Deme> deme) {
     emp_assert(deme);
+    cur_deme = deme; // @amlalejini TODO: clean this up. So hacky.
     // Resize deme data to match deme size.
     deme_data.resize(deme->grid.size());
     for (size_t i = 0; i < deme_data.size(); ++i) {
       deme_data[i].role_id(deme->grid[i]->GetTrait(TRAIT_ID__ROLE_ID));
       deme_data[i].loc(i);
+      deme_data[i].knockedout((bool)deme->knockouts.count(i));
     }
     D3::Selection * svg = GetSVG();
     svg->SelectAll("g").Remove(); // Clean up old deme elements.
@@ -594,7 +608,11 @@ public:
                       var x_trans = cell_size * (d.loc % deme_width);
                       var y_trans = cell_size * Math.floor(d.loc / deme_width);
                       return "translate(" + x_trans + "," + y_trans + ")";
-                    }
+                    },
+                  "knockout": function(d) {
+                    if (d.knockedout) return "true";
+                    else return "false";
+                  }
                   });
       cells.append("rect")
            .attr({
@@ -602,7 +620,8 @@ public:
              "height": cell_size,
              "fill": "white",
              "stroke": "black"
-           });
+           })
+           .on("click", on_deme_cell_click);
       var min_fsize = -1;
       cells.append("text")
             .attr({"y": cell_size,
@@ -667,6 +686,21 @@ private:
   emp::Ptr<Deme> eval_deme;
   emp::Ptr<Agent> eval_agent;
 
+  std::function<double(Deme*)> fit_fun =
+    [this](Deme * deme) {
+      if (deme == nullptr) { return 0.0; }
+      std::unordered_set<double> valid_uids;
+      double valid_id_cnt = 0;
+      for (size_t i = 0; i < deme->grid.size(); ++i) {
+        const double role_id = deme->grid[i]->GetTrait(TRAIT_ID__ROLE_ID);
+        if (role_id > 0 && role_id <= deme_size) {
+          ++valid_id_cnt; // Increment valid id cnt.
+          valid_uids.insert(role_id); // Add to set.
+        }
+      }
+      return (valid_id_cnt >= deme->grid.size()) ? (valid_id_cnt + (double)valid_uids.size()) : (valid_id_cnt);
+    };
+
 public:
   Application()
     : random(),
@@ -687,6 +721,7 @@ public:
     deme_size = deme_width * deme_height;
     deme_eval_time = EVAL_TIME;
     cur_time = 0;
+
     // Create random number generator.
     random = emp::NewPtr<emp::Random>(random_seed);
     // Confiigure instruction set/event library.
@@ -703,18 +738,38 @@ public:
     // Add program visualization to page.
     program_vis_doc << program_vis;
     deme_vis_doc << deme_vis;
-    // Add dashboard components to page.
-    vis_dash << "<div class='row'>"
-             << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but")
-             << "</div>";
-    vis_dash << "<div class='row justify-content-center pad-top-row'>"
-             << "<div class='col'>"
-             << "<h3>Update: <span class=\"badge badge-default\">" << web::Live([this]() { return this->cur_time; }) << "</span></h3>"
-             << "</div>"
-             << "</div>";
-    auto run_button = vis_dash.Button("run_program_but");
-    run_button.SetAttr("class", "btn btn-primary");
 
+    // Add dashboard components to page.
+    emp::JSWrap([this]() { this->RunCurProgram(); }, "run_program");
+    emp::JSWrap([this]() { this->DoReset(); }, "reset_application");
+    // TODO: talk to someone about this nonsense. Had to set these buttons up this way because
+    //        the something in emp::web kept fucking with my page organization (tossing things in spans
+    //        instead of where I wanted it).
+    vis_dash << "<div class='row'>"
+             << "<div class='col'>"
+               << "<div class='btn-group' role='group'>"
+                 << "<button id='run_program_button' onclick='emp.run_program()' class='btn btn-primary'>Run</button>"
+                 << "<button id='reset_button' onclick='emp.reset_application()' class='btn btn-primary'>Reset</button>"
+                //  << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but")
+                //  << web::Button([this]() { this->DoReset(); }, "Reset", "reset_button")
+               << "</div>"
+             << "</div>"
+             << "</div>"
+              << "<div class='row justify-content-center pad-top-row'>"
+               << "<div class='col'>"
+                << "<h3>Update: <span class=\"badge badge-default\">" << web::Live([this]() { return this->cur_time; }) << "</span></h3>"
+               << "</div>"
+               << "<div class='col'>"
+                << "<h3>Fitness: <span class=\"badge badge-default\">" << web::Live([this]() { return this->fit_fun(eval_deme); }) << "</span></h3>"
+               << "</div>"
+             << "</div>";
+    // auto run_button = vis_dash.Button("run_program_button");
+    // run_button.SetAttr("class", "btn btn-primary");
+    //run_button.Callback([this]() { this->RunCurProgram(); });
+
+    // auto reset_button = vis_dash.Button("reset_button");
+    // reset_button.SetAttr("class", "btn btn-primary");
+    //reset_button.Callback([this]() { this->DoReset(); });
     // Configure program visualization.
     // Test program.
     program_t test_program(inst_lib);
@@ -735,6 +790,20 @@ public:
     program_vis.On("resize", [this]() { std::cout << "On program vis resize!" << std::endl; });
     // Configure deme visualization.
     deme_vis.Start(eval_deme);
+  }
+
+  void DoReset() {
+    if (anim.GetActive()) anim.Stop();
+    cur_time = 0;
+
+    program_vis.ResetKnockouts();
+    program_vis.DrawProgram();
+
+    eval_deme->knockouts.clear();
+    eval_deme->Reset();
+    deme_vis.DrawDeme(eval_deme);
+
+    vis_dash.Redraw();
   }
 
   void DoFinishEval() {

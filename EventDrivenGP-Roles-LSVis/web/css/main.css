@@ -25,4 +25,7 @@
   stroke: black;
   fill: black; }
 
+.deme_cell[knockout="true"] rect {
+  fill: black; }
+
 /*# sourceMappingURL=main.css.map */
