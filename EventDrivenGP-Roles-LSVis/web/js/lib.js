@@ -93,9 +93,10 @@ var resizeProgVis = function() {
   var svg = js.objects[svg_obj_id];
   var prg_name = program_data["name"];
   var iblk_h = 20;
-  var iblk_w = 75;
+  var iblk_w = 65;
   var fblk_w = 100;
-  var iblk_lpad = fblk_w - iblk_w;
+  var fitblk_w = 10;
+  var iblk_lpad = fblk_w - (iblk_w + fitblk_w);
   var txt_lpad = 2;
 
   var vis_w = d3.select("#program-vis")[0][0].clientWidth;
@@ -211,6 +212,15 @@ var resizeProgVis = function() {
                 })
                 .attr({
                   "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
+                });
+    // Fitness contribution indicator.
+    instructions.append("rect")
+                .attr({
+                  "class": "fitness-contribution-blk",
+                  "x": xScale(iblk_w),
+                  "width": xScale(fitblk_w),
+                  "height": iblk_h,
+                  "fill": "grey"
                 });
   });
 }

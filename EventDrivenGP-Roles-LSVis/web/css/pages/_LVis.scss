@@ -21,6 +21,9 @@
     stroke:black;
     fill:$inst-def-color;
   }
+  .fitness-contribution-blk {
+    fill:grey;
+  }
 }
 
 .program-instruction[knockout="true"] {
@@ -30,6 +33,9 @@
   rect {
     stroke:black;
     fill:$inst-def-color-ko;
+  }
+  .fitness-contribution-blk {
+    fill:grey;
   }
 }
 

@@ -171,7 +171,6 @@ struct Deme {
     return ((size_t)emp::Mod(rand_x, (int)width) + (size_t)emp::Mod(rand_y, (int)height)*width);
   }
 
-
   void Advance(size_t t=1) { for (size_t i = 0; i < t; ++i) SingleAdvance(); }
 
   void SingleAdvance() {
@@ -180,7 +179,6 @@ struct Deme {
       if (!knockouts.count(i)) grid[i]->SingleProcess();
     }
   }
-
 };
 
 // Some extra instructions for this experiment.
@@ -212,21 +210,19 @@ namespace web {
 class EventDrivenGP_ProgramVis : public D3Visualization {
 
 protected:
+  using pos_t = std::pair<int, int>;
 
   std::map<std::string, program_t> program_map;     // Map of available programs.
   Ptr<program_t> cur_program;                       // Program built from program data.
   std::string display_program;
 
-  double y_margin;
-  double x_margin;
-
-  double inst_blk_height = 50;
-  double inst_blk_width = 150;
-  double func_blk_width = 200;
+  std::map<pos_t, pos_t> program_pos_map; // Map from original(base) program fp/ip space to cur program fp/ip space.
+  std::map<pos_t, double> landscape_map;  // Map from cur program fp/ip --> fitness contribution for that location.
 
   std::set<std::pair<int, int>> inst_knockouts;
   std::set<int> func_knockouts;
 
+  std::function<double(Ptr<program_t>)> eval_program = [](Ptr<program_t>) { return 0.0; };
 
   std::function<void(int, int)> knockout_inst = [this](int fp, int ip) {
     std::pair<int, int> inst_loc(fp, ip);
@@ -244,7 +240,6 @@ protected:
   };
 
   void InitializeVariables() {
-    std::cout << "Init vars" << std::endl;
     JSWrap(knockout_func, "knockout_func");
     JSWrap(knockout_inst, "knockout_inst");
     JSWrap([this](){ return this->program_data->GetID(); }, "get_prog_data_obj_id");
@@ -255,6 +250,18 @@ protected:
 
   void SetProgramData(const std::string & name) {
     emp_assert(Has(program_map, name));
+    // Program data: [{
+    //  name: "prgm_name",
+    //  functions: [
+    //    {"affinity": "0000",
+    //     "sequence": [{"name": "inst_name", "has_affinity": bool, "affinity": "0000", "args": [...]}, {}, {}, ...]
+    //    },
+    //    {...},
+    //    ...
+    //   ]
+    // }
+    // ]
+    //
     std::cout << "Set program data to: " << name << std::endl;
     if (program_data) program_data.Delete();
     const program_t & program = program_map.at(name);
@@ -290,26 +297,11 @@ protected:
   }
 
 public:
-  // Program data: [{
-  //  name: "prgm_name",
-  //  functions: [
-  //    {"affinity": "0000",
-  //     "sequence": [{"name": "inst_name", "has_affinity": bool, "affinity": "0000", "args": [...]}, {}, {}, ...]
-  //    },
-  //    {...},
-  //    ...
-  //   ]
-  // }
-  // ]
-  //
   Ptr<D3::JSONDataset> program_data;
 
-  EventDrivenGP_ProgramVis(int width, int height) : D3Visualization(width, height) {
-
-  }
+  EventDrivenGP_ProgramVis() : D3Visualization(1, 1) { ; }
 
   void Setup() {
-    std::cout << "LSVis setup getting run." << std::endl;
     InitializeVariables();
     this->init = true;
     this->pending_funcs.Run();
@@ -337,12 +329,15 @@ public:
     if (cur_program) cur_program.Delete();
     const program_t & ref_program = program_map.at(display_program);
     cur_program = NewPtr<program_t>(ref_program.inst_lib);
+    program_pos_map.clear();
     // Build cur_program up, knocking out appropriate functions/instructions
     for (size_t fID = 0; fID < ref_program.GetSize(); ++fID) {
       if (func_knockouts.count(fID)) continue;
       fun_t new_fun = fun_t(ref_program[fID].affinity);
       for (size_t iID = 0; iID < ref_program[fID].GetSize(); ++iID) {
         if (inst_knockouts.count(std::make_pair<int, int>(fID, iID))) continue;
+        program_pos_map.insert(std::make_pair(std::make_pair(cur_program->GetSize(), new_fun.GetSize()),
+                                              std::make_pair(fID, iID))); // Lets me recover original position given cur program position.
         new_fun.inst_seq.emplace_back(ref_program[fID].inst_seq[iID]);
       }
       // Add new function to program if not empty.
@@ -356,6 +351,10 @@ public:
 
   void AddProgram(const std::string & _name, const program_t & _program) {
     program_map.emplace(_name, _program);
+  }
+
+  void SetEvalProgramFun(std::function<double(Ptr<program_t>)> eval_fun) {
+    eval_program = eval_fun;
   }
 
   // @amlalejini - TODO
@@ -396,9 +395,10 @@ public:
       var svg = js.objects[svg_obj_id];
       var prg_name = program_data["name"];
       var iblk_h = 20;
-      var iblk_w = 75;
+      var iblk_w = 65;
       var fblk_w = 100;
-      var iblk_lpad = fblk_w - iblk_w;
+      var fitblk_w = 10;
+      var iblk_lpad = fblk_w - (iblk_w + fitblk_w);
       var txt_lpad = 2;
 
       var vis_w = d3.select("#program-vis")[0][0].clientWidth;
@@ -477,6 +477,7 @@ public:
                             var y_trans = (iblk_h + i * iblk_h);
                             return "translate(" + x_trans + "," + y_trans + ")";
                           }});
+        // Instruction rect + text.
         instructions.append("rect")
                     .attr({
                       "width": function(d) { d.w = xScale(iblk_w); return d.w; },
@@ -515,9 +516,57 @@ public:
                     .attr({
                       "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
                     });
+        // Fitness contribution indicator.
+        instructions.append("rect")
+                    .attr({
+                      "class": "fitness-contribution-blk",
+                      "x": xScale(iblk_w),
+                      "width": xScale(fitblk_w),
+                      "height": iblk_h,
+                      "fill": "grey"
+                    });
       });
 
     });
+  }
+
+  /// Landscape current program.
+  void Landscape() {
+    std::cout << "Program vis::Landscape" << std::endl;
+    // Reset landscape.
+    landscape_map.clear();
+    // Build current program.
+    BuildCurProgram();
+    // Get baseline fitness.
+    double base_fitness = eval_program(cur_program);
+    std::cout << "Base fitness: " << base_fitness << std::endl;
+    // Do single instruction knockouts.
+    program_t & base_prog = *cur_program;
+    landscape_map.insert(std::make_pair(std::make_pair(-1, -1), base_fitness));
+    program_t ko_prog(base_prog);
+    for (size_t fID = 0; fID < base_prog.GetSize(); ++fID) {
+      pos_t func_loc(fID, -1); // Key for function knockout fitness value.
+      for (size_t iID = 0; iID < base_prog[fID].GetSize(); ++iID) {
+        pos_t inst_loc(fID, iID); // Key for instruction knockout fitness value.
+        // Build program w/this location knocked out.
+        ko_prog.SetInst(fID, iID, ko_prog.inst_lib->GetID("Nop"));
+        // Evaluate program w/this location knocked out.
+        double ko_fitness = eval_program(&ko_prog);
+        // Store fitness value of program w/this location knocked out.
+        landscape_map.insert(std::make_pair(inst_loc, ko_fitness));
+        // Restore ko_prog.
+        ko_prog.SetInst(fID, iID, base_prog[fID].inst_seq[iID]);
+      }
+    }
+    std::cout << "Landscape: " << std::endl;
+    for (auto loc : landscape_map) {
+      std::cout << "(" << loc.first.first << "," << loc.first.second << "):" << loc.second << std::endl;
+    }
+    std::cout << "Program position map (cur->original): " << std::endl;
+    for (auto thing : program_pos_map) {
+      std::cout << "(" << thing.first.first << "," << thing.first.second << ") --> ";
+      std::cout << "(" << thing.second.first << "," << thing.second.second << ")" << std::endl;
+    }
   }
 };
 
@@ -531,10 +580,6 @@ public:
   };
 
 private:
-  double y_margin;
-  double x_margin;
-  double cell_size = 100;
-
   emp::Ptr<Deme> cur_deme;
   emp::vector<HardwareDatum> deme_data;
 
@@ -554,9 +599,7 @@ private:
   }
 
 public:
-  EventDrivenGP_DemeVis(int width, int height) : D3Visualization(width, height) {
-
-  }
+  EventDrivenGP_DemeVis() : D3Visualization(1, 1) { ; }
 
   void Setup() {
     std::cout << "Deme vis setup running." << std::endl;
@@ -566,7 +609,6 @@ public:
   }
 
   void Start(emp::Ptr<Deme> deme) {
-    std::cout << "Deme vis start" << std::endl;
     if (this->init) {
       DrawDeme(deme);
     } else {
@@ -595,8 +637,6 @@ public:
       var deme_width = $1;
       var deme_height = $2;
       var txt_lpad = 2;
-
-      //var cell_size = $3;
 
       var vis_w = d3.select("#deme-vis")[0][0].clientWidth;
       svg.attr({"deme-width": deme_width, "deme-height": deme_height, "width": vis_w, "height": vis_w});
@@ -647,7 +687,7 @@ public:
             })
             .attr({"dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }});
 
-    }, svg->GetID(), deme->GetWidth(), deme->GetHeight(), cell_size);
+    }, svg->GetID(), deme->GetWidth(), deme->GetHeight());
 
   }
 
@@ -685,6 +725,8 @@ private:
   // Simulation/evaluation objects.
   emp::Ptr<Deme> eval_deme;
   emp::Ptr<Agent> eval_agent;
+  emp::Ptr<Deme> landscape_deme;
+  emp::Ptr<Agent> landscape_agent;
 
   std::function<double(Deme*)> fit_fun =
     [this](Deme * deme) {
@@ -704,14 +746,16 @@ private:
 public:
   Application()
     : random(),
-      program_vis(1, 1),
-      deme_vis(1, 1),
+      program_vis(),
+      deme_vis(),
       program_vis_doc("program-vis"),
       deme_vis_doc("deme-vis"),
       vis_dash("vis-dashboard"),
       anim([this]() { Application::Animate(anim); } ),
       eval_deme(),
-      eval_agent()
+      eval_agent(),
+      landscape_deme(),
+      landscape_agent()
   {
 
     // Localize parameter values.
@@ -734,6 +778,8 @@ public:
 
     // Configure evaluation deme.
     eval_deme = emp::NewPtr<Deme>(random, deme_width, deme_height, event_lib, inst_lib);
+    // Need a separate deme for landscaping.
+    landscape_deme = emp::NewPtr<Deme>(random, deme_width, deme_height, event_lib, inst_lib);
 
     // Add program visualization to page.
     program_vis_doc << program_vis;
@@ -742,34 +788,26 @@ public:
     // Add dashboard components to page.
     emp::JSWrap([this]() { this->RunCurProgram(); }, "run_program");
     emp::JSWrap([this]() { this->DoReset(); }, "reset_application");
-    // TODO: talk to someone about this nonsense. Had to set these buttons up this way because
-    //        the something in emp::web kept fucking with my page organization (tossing things in spans
-    //        instead of where I wanted it).
-    vis_dash << "<div class='row'>"
-             << "<div class='col'>"
-               << "<div class='btn-group' role='group'>"
-                 << "<button id='run_program_button' onclick='emp.run_program()' class='btn btn-primary'>Run</button>"
-                 << "<button id='reset_button' onclick='emp.reset_application()' class='btn btn-primary'>Reset</button>"
-                //  << web::Button([this]() { this->RunCurProgram(); }, "Run", "run_program_but")
-                //  << web::Button([this]() { this->DoReset(); }, "Reset", "reset_button")
-               << "</div>"
-             << "</div>"
-             << "</div>"
-              << "<div class='row justify-content-center pad-top-row'>"
-               << "<div class='col'>"
-                << "<h3>Update: <span class=\"badge badge-default\">" << web::Live([this]() { return this->cur_time; }) << "</span></h3>"
-               << "</div>"
-               << "<div class='col'>"
-                << "<h3>Fitness: <span class=\"badge badge-default\">" << web::Live([this]() { return this->fit_fun(eval_deme); }) << "</span></h3>"
-               << "</div>"
-             << "</div>";
-    // auto run_button = vis_dash.Button("run_program_button");
-    // run_button.SetAttr("class", "btn btn-primary");
-    //run_button.Callback([this]() { this->RunCurProgram(); });
+    emp::JSWrap([this]() { this->DoLandscape(); }, "landscape_program");
 
-    // auto reset_button = vis_dash.Button("reset_button");
-    // reset_button.SetAttr("class", "btn btn-primary");
-    //reset_button.Callback([this]() { this->DoReset(); });
+    vis_dash  << "<div class='row'>"
+                << "<div class='col'>"
+                  << "<div class='btn-group' role='group'>"
+                    << "<button id='run_program_button' onclick='emp.run_program()' class='btn btn-primary'>Run</button>"
+                    << "<button id='landscape_button' onclick='emp.landscape_program()' class='btn btn-primary'>Landscape</button>"
+                    << "<button id='reset_button' onclick='emp.reset_application()' class='btn btn-primary'>Reset</button>"
+                  << "</div>"
+                << "</div>"
+              << "</div>"
+              << "<div class='row justify-content-center pad-top-row'>"
+                << "<div class='col'>"
+                  << "<h3>Update: <span class=\"badge badge-default\">" << web::Live([this]() { return this->cur_time; }) << "</span></h3>"
+                << "</div>"
+                << "<div class='col'>"
+                  << "<h3>Fitness: <span class=\"badge badge-default\">" << web::Live([this]() { return this->fit_fun(eval_deme); }) << "</span></h3>"
+                << "</div>"
+              << "</div>";
+
     // Configure program visualization.
     // Test program.
     program_t test_program(inst_lib);
@@ -783,8 +821,20 @@ public:
     test_program.PushInst("Inc", 1);
     test_program.PushInst("Add", 0, 1, 5);
     program_vis.AddProgram("Test", test_program);
-    //
-
+    program_vis.SetEvalProgramFun([this](emp::Ptr<program_t> prog_ptr) {
+      // 1) Load program into deme.
+      if (landscape_agent) landscape_agent.Delete();
+      landscape_agent = emp::NewPtr<Agent>(*prog_ptr);
+      this->landscape_deme->LoadAgent(landscape_agent);
+      //  - Configure landscape deme knockouts:
+      this->landscape_deme->knockouts = this->eval_deme->knockouts;
+      // 2) Run deme.
+      for (size_t ls_time = 0; ls_time < EVAL_TIME; ++ls_time) {
+        this->landscape_deme->SingleAdvance();
+      }
+      // 3) Evaluate deme fitness.
+      return this->fit_fun(this->landscape_deme);
+    });
     // Start the visualization.
     program_vis.Start("Test");
     program_vis.On("resize", [this]() { std::cout << "On program vis resize!" << std::endl; });
@@ -842,6 +892,11 @@ public:
     eval_deme->LoadAgent(eval_agent);
     // Evaluate deme.
     anim.Start();
+  }
+
+  void DoLandscape() {
+    std::cout << "Landscape cur program (and deme, etc)!" << std::endl;
+    program_vis.Landscape();
   }
 
 };
