@@ -22,7 +22,7 @@
 
 // @amlalejini - TODO:
 // [ ] Switch to using linear scales
-// [ ] Make sizing of everything dynamic
+// [x] Make sizing of everything dynamic
 // [ ] Wrap x/y/text things in named functions
 // [ ] Move all styling to SCSS
 // [ ] Beautify (with SASS)
@@ -41,7 +41,7 @@ using program_t = emp::EventDrivenGP::Program;
 using fun_t = emp::EventDrivenGP::Function;
 using state_t = emp::EventDrivenGP::State;
 
-constexpr size_t EVAL_TIME = 200;
+constexpr size_t EVAL_TIME = 50;
 constexpr size_t DIST_SYS_WIDTH = 5;
 constexpr size_t DIST_SYS_HEIGHT = 5;
 constexpr size_t DIST_SYS_SIZE = DIST_SYS_WIDTH * DIST_SYS_HEIGHT;
@@ -210,6 +210,12 @@ namespace web {
 class EventDrivenGP_ProgramVis : public D3Visualization {
 
 protected:
+  struct ProgramPosition {
+    EMP_BUILD_INTROSPECTIVE_TUPLE(int, fID,
+                                  int, iID
+                                )
+  };
+
   using pos_t = std::pair<int, int>;
 
   std::map<std::string, program_t> program_map;     // Map of available programs.
@@ -224,24 +230,64 @@ protected:
 
   std::function<double(Ptr<program_t>)> eval_program = [](Ptr<program_t>) { return 0.0; };
 
+  std::function<bool(int, int)> is_knockedout = [this](int fID, int iID = -1) {
+    if (iID == -1) {
+      return (bool)this->func_knockouts.count(fID);
+    }
+    return (bool)this->inst_knockouts.count(std::make_pair(fID, iID));
+  };
+
   std::function<void(int, int)> knockout_inst = [this](int fp, int ip) {
     std::pair<int, int> inst_loc(fp, ip);
-    if (inst_knockouts.count(inst_loc))
-      inst_knockouts.erase(inst_loc);
+    if (this->inst_knockouts.count(inst_loc))
+      this->inst_knockouts.erase(inst_loc);
     else
-      inst_knockouts.insert(inst_loc);
+      this->inst_knockouts.insert(inst_loc);
   };
 
   std::function<void(int)> knockout_func = [this](int fp) {
-    if (func_knockouts.count(fp))
-      func_knockouts.erase(fp);
+    if (this->func_knockouts.count(fp))
+      this->func_knockouts.erase(fp);
     else
-      func_knockouts.insert(fp);
+      this->func_knockouts.insert(fp);
+  };
+
+  std::function<ProgramPosition(int, int)> original_to_built_space = [this](int fID, int iID) {
+    std::pair<int, int> loc(fID, iID);
+    ProgramPosition pos;
+    if (!program_pos_map.count(loc)) {
+      pos.fID(-1);
+      pos.iID(-1);
+    } else {
+      pos.fID(program_pos_map.at(loc).first);
+      pos.iID(program_pos_map.at(loc).second);
+    }
+    return pos;
+  };
+
+  std::function<double(int, int)> get_landscape_val = [this](int fID, int iID) {
+    std::pair<int, int> loc(fID, iID);
+    if (!landscape_map.count(loc)) return -1.0 * (size_t)-1;
+    return landscape_map.at(loc);
+  };
+
+
+  std::function<void(std::string)> on_program_select = [this](std::string name) {
+    DisplayProgram(name);
+  };
+
+  std::function<void(std::string)> read_prog_from_str = [this](std::string prog_str) {
+    std::cout << prog_str << std::endl;
   };
 
   void InitializeVariables() {
     JSWrap(knockout_func, "knockout_func");
     JSWrap(knockout_inst, "knockout_inst");
+    JSWrap(is_knockedout, "is_code_knockedout");
+    JSWrap(original_to_built_space, "original_to_built_prog_space");
+    JSWrap(get_landscape_val, "get_landscape_val");
+    JSWrap(on_program_select, "on_program_select");
+    JSWrap(read_prog_from_str, "read_prog_from_str");
     JSWrap([this](){ return this->program_data->GetID(); }, "get_prog_data_obj_id");
     JSWrap([this](){ return this->GetSVG()->GetID(); }, "get_prog_vis_svg_obj_id");
     EM_ASM({ window.addEventListener("resize", resizeProgVis); });
@@ -312,6 +358,11 @@ public:
     func_knockouts.clear();
   }
 
+  void ResetLandscaping() {
+    program_pos_map.clear();
+    landscape_map.clear();
+  }
+
   Ptr<D3::JSONDataset> GetDataset() { return program_data; }
 
   // void LoadDataFromFile(std::string filename) {
@@ -329,15 +380,17 @@ public:
     if (cur_program) cur_program.Delete();
     const program_t & ref_program = program_map.at(display_program);
     cur_program = NewPtr<program_t>(ref_program.inst_lib);
-    program_pos_map.clear();
+    // Building a new program, reset landscaping.
+    ResetLandscaping();
     // Build cur_program up, knocking out appropriate functions/instructions
     for (size_t fID = 0; fID < ref_program.GetSize(); ++fID) {
       if (func_knockouts.count(fID)) continue;
       fun_t new_fun = fun_t(ref_program[fID].affinity);
       for (size_t iID = 0; iID < ref_program[fID].GetSize(); ++iID) {
         if (inst_knockouts.count(std::make_pair<int, int>(fID, iID))) continue;
-        program_pos_map.insert(std::make_pair(std::make_pair(cur_program->GetSize(), new_fun.GetSize()),
-                                              std::make_pair(fID, iID))); // Lets me recover original position given cur program position.
+        program_pos_map.insert(std::make_pair(std::make_pair(fID, iID),
+                                              std::make_pair(cur_program->GetSize(), new_fun.GetSize())
+                                              )); // Lets me recover original position given cur program position.
         new_fun.inst_seq.emplace_back(ref_program[fID].inst_seq[iID]);
       }
       // Add new function to program if not empty.
@@ -378,6 +431,8 @@ public:
     display_program = name;
     // Reset knockouts
     ResetKnockouts();
+    // Reset Landscaping.
+    ResetLandscaping();
     // Set program data to correct program
     SetProgramData(name);
     // Draw program from program data.
@@ -394,7 +449,7 @@ public:
       var program_data = js.objects[program_data_obj_id][0];
       var svg = js.objects[svg_obj_id];
       var prg_name = program_data["name"];
-      var iblk_h = 20;
+      var iblk_h= 20;
       var iblk_w = 65;
       var fblk_w = 100;
       var fitblk_w = 10;
@@ -416,13 +471,16 @@ public:
       svg.selectAll("*").remove();
       svg.attr({"width": xScale(fblk_w), "height": prg_h});
       // Set program name.
-      d3.select("#program-vis-head").text("Program: " + prg_name);
+      d3.select("#select_prog_dropdown_btn").text("Current Program: " + prg_name);
       // Add a group for each function.
       var functions = svg.selectAll("g").data(program_data["functions"]);
       functions.enter().append("g");
       functions.exit().remove();
       functions.attr({"class": "program-function",
-                      "knockout": "false",
+                      "knockout": function(func, fID) {
+                        var ko = (emp.is_code_knockedout(fID, -1)) ? "true" : "false";
+                        return ko;
+                      },
                       "transform": function(func, fID) {
                         var x_trans = xScale(0);
                         var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
@@ -436,8 +494,11 @@ public:
                  "class": "function-def-rect",
                  "width": xScale(fblk_w),
                  "height": iblk_h,
-                 "knockout": "false"
-               })
+                 "knockout": function(func, fID) {
+                   var ko = (emp.is_code_knockedout(fID, -1)) ? "true" : "false";
+                   return ko;
+                 }
+                })
                .on("click", on_func_click);
       functions.append("text")
                .attr({
@@ -476,18 +537,21 @@ public:
                             var x_trans = xScale(iblk_lpad);
                             var y_trans = (iblk_h + i * iblk_h);
                             return "translate(" + x_trans + "," + y_trans + ")";
-                          }});
-        // Instruction rect + text.
+                          },
+                          "knockout": function(inst, iID) { return emp.is_code_knockedout(fID, iID) ? "true" : "false"; }
+                        });
         instructions.append("rect")
                     .attr({
+                      "class": "program-instruction-blk",
                       "width": function(d) { d.w = xScale(iblk_w); return d.w; },
                       "height": iblk_h,
-                      "knockout": "false"
+                      "knockout": function(inst, iID) { return emp.is_code_knockedout(fID, iID) ? "true" : "false"; }
                     })
                     .on("click", on_inst_click);
         var min_fsize = -1;
         instructions.append("text")
                     .attr({
+                      "class": "program-instruction-txt",
                       "x": txt_lpad,
                       "y": iblk_h,
                       "pointer-events": "none"
@@ -523,23 +587,19 @@ public:
                       "x": xScale(iblk_w),
                       "width": xScale(fitblk_w),
                       "height": iblk_h,
-                      "fill": "grey"
+                      "fill": "white"
                     });
       });
-
     });
   }
 
   /// Landscape current program.
   void Landscape() {
     std::cout << "Program vis::Landscape" << std::endl;
-    // Reset landscape.
-    landscape_map.clear();
     // Build current program.
     BuildCurProgram();
     // Get baseline fitness.
     double base_fitness = eval_program(cur_program);
-    std::cout << "Base fitness: " << base_fitness << std::endl;
     // Do single instruction knockouts.
     program_t & base_prog = *cur_program;
     landscape_map.insert(std::make_pair(std::make_pair(-1, -1), base_fitness));
@@ -558,15 +618,8 @@ public:
         ko_prog.SetInst(fID, iID, base_prog[fID].inst_seq[iID]);
       }
     }
-    std::cout << "Landscape: " << std::endl;
-    for (auto loc : landscape_map) {
-      std::cout << "(" << loc.first.first << "," << loc.first.second << "):" << loc.second << std::endl;
-    }
-    std::cout << "Program position map (cur->original): " << std::endl;
-    for (auto thing : program_pos_map) {
-      std::cout << "(" << thing.first.first << "," << thing.first.second << ") --> ";
-      std::cout << "(" << thing.second.first << "," << thing.second.second << ")" << std::endl;
-    }
+    // Update landscaping on visualization.
+    EM_ASM({ landscapeProg(); });
   }
 };
 
@@ -809,6 +862,11 @@ public:
               << "</div>";
 
     // Configure program visualization.
+    // Define a convenient affinity table.
+    emp::vector<affinity_t> affinity_table(256);
+    for (size_t i = 0; i < affinity_table.size(); ++i) {
+      affinity_table[i].SetByte(0, (uint8_t)i);
+    }
     // Test program.
     program_t test_program(inst_lib);
     test_program.PushFunction(fun_t());
@@ -820,7 +878,41 @@ public:
     test_program.PushInst("Call", 0, 0, 0, affinity_t());
     test_program.PushInst("Inc", 1);
     test_program.PushInst("Add", 0, 1, 5);
-    program_vis.AddProgram("Test", test_program);
+    DoAddProgram("Test", test_program);
+    // Another test program.
+    program_t prog2(inst_lib);
+    prog2.PushFunction(fun_t(affinity_table[166]));
+    prog2.PushInst("Call", 0, 0, 0, affinity_table[66]);
+    prog2.PushInst("SwapMem", 5, 6);
+    prog2.PushInst("Call", 0, 0, 0, affinity_table[164]);
+    prog2.PushInst("Call", 0, 0, 0, affinity_table[240]);
+    prog2.PushInst("TestLess", 0, 7, 0);
+    prog2.PushInst("Call", 0, 0, 0, affinity_table[183]);
+    prog2.PushInst("Inc", 4);
+    prog2.PushInst("SetRoleID", 0);
+    prog2.PushFunction(fun_t(affinity_table[187]));
+    prog2.PushInst("Pull", 4, 0);
+    prog2.PushInst("Nop");
+    prog2.PushInst("Nop");
+    prog2.PushInst("BroadcastMsg", 0, 0, 0, affinity_table[216]);
+    prog2.PushInst("BroadcastMsg", 0, 0, 0, affinity_table[139]);
+    prog2.PushInst("GetRoleID", 0);
+    prog2.PushInst("Nop");
+    prog2.PushInst("Add", 0, 0, 0);
+    prog2.PushInst("Inc", 0);
+    prog2.PushInst("SetRoleID", 0);
+    prog2.PushFunction(fun_t(affinity_table[50]));
+    prog2.PushInst("Call", 0, 0, 0, affinity_table[232]);
+    prog2.PushInst("SetMem", 0, 0);
+    prog2.PushInst("TestEqu", 0, 0, 0);
+    prog2.PushInst("BroadcastMsg", 0, 0, 0, affinity_table[225]);
+    prog2.PushInst("Pull", 7, 0);
+    prog2.PushInst("GetRoleID", 0);
+    prog2.PushInst("Break");
+    prog2.PushInst("Inc", 0);
+    prog2.PushInst("SetRoleID", 0);
+    DoAddProgram("Test2", prog2);
+
     program_vis.SetEvalProgramFun([this](emp::Ptr<program_t> prog_ptr) {
       // 1) Load program into deme.
       if (landscape_agent) landscape_agent.Delete();
@@ -836,7 +928,7 @@ public:
       return this->fit_fun(this->landscape_deme);
     });
     // Start the visualization.
-    program_vis.Start("Test");
+    program_vis.Start("Test2");
     program_vis.On("resize", [this]() { std::cout << "On program vis resize!" << std::endl; });
     // Configure deme visualization.
     deme_vis.Start(eval_deme);
@@ -859,7 +951,7 @@ public:
   void DoFinishEval() {
     std::cout << "Finish eval" << std::endl;
     anim.Stop();
-    eval_deme->Print();
+    // eval_deme->Print();
   }
 
   void Animate(const web::Animate & anim) {
@@ -897,6 +989,15 @@ public:
   void DoLandscape() {
     std::cout << "Landscape cur program (and deme, etc)!" << std::endl;
     program_vis.Landscape();
+  }
+
+  void DoAddProgram(const std::string & _name, const program_t & _program) {
+    program_vis.AddProgram(_name, _program);
+    // Update dropdown menu.
+    EM_ASM_ARGS({
+      program_name_set.add(Pointer_stringify($0));
+      updateProgramSelection();
+    }, _name.c_str());
   }
 
 };

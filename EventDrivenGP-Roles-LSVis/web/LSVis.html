@@ -13,6 +13,9 @@
     <div class="jumbotron">
       <h1 class="display-4">Knockout Explorer</h1>
       <p class="lead">EventDrivenGP::Role-ID Task</p>
+      <label class="btn btn-default">
+        Browse <input id="prog-file-selector" type="file" accept=".gp" hidden>
+      </label>
     </div>
 
     <div class="container-fluid">
@@ -22,6 +25,13 @@
         <div class="col-4">
           <div class="card">
             <div class="card-header" id="program-vis-head">
+              <div class='dropdown'>
+                <button id='select_prog_dropdown_btn' type='button' class='btn btn-primary dropdown-toggle' data-toggle='dropdown' aria-haspopup='true' aria-expanded='false'>
+                  Select Program
+                </button>
+                <div id='select_prog_dropdown_menu' class='dropdown-menu' aria-labelledby='select_prog_dropdown_btn'>
+                </div>
+              </div>
             </div>
             <div class="card-block">
               <div id="program-vis">
@@ -97,6 +107,8 @@
       }
 
     </style>*/ -->
+    <!-- Some hidden HTML -->
+
 
   </body>
   <script src="js/jquery-1.11.2.min.js"></script>

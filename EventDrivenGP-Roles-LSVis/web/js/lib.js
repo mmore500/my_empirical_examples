@@ -1,3 +1,10 @@
+var program_name_set = new Set();
+var prog_reader = new FileReader();
+prog_reader.onload = function(){ emp.read_prog_from_str(prog_reader.result); };
+var control = document.getElementById("prog-file-selector");
+control.addEventListener("change", function(event) { prog_reader.readAsText(control.files[0]); }, false);
+
+
 
 var on_inst_click = function(inst, i) {
   emp.knockout_inst(inst.function, inst.position);
@@ -26,8 +33,6 @@ var on_func_click = function(func, i) {
 var on_deme_cell_click = function(d, i) {
   emp.deme_cell_knockout(i);
   var cell = d3.select(this.parentNode);
-  console.log(d);
-  console.log(cell);
   if (!d.knockedout) {
     cell.attr("knockout", "true");
     d.knockedout = true;
@@ -37,191 +42,138 @@ var on_deme_cell_click = function(d, i) {
   }
 }
 
+var updateProgramSelection = function() {
+  var menu = $("#select_prog_dropdown_menu");
+  menu.empty();
+  $.each(Array.from(program_name_set), function(i, v) {
+    menu.append($("<button type='button' class='dropdown-item' onclick='emp.on_program_select(\"" + v + "\")'></button>").html(v).val(v));
+    // $('#select_prog_dropdown_menu').append($('<option></option>').val("hello"+i).html("hello"+i));
+  });
+}
+
+// var onProgramSelect = function(name) {
+//   console.log(name);
+//   //console.log($(this).attr("value"));
+// }
+
+var landscapeProg = function() {
+  var max_del_lscolor = "#b2182b";
+  var max_ben_lscolor = "#2166ac";
+  var neutral_lscolor = "grey";
+  var lethal_lscolor = "purple";
+  var cScale = d3.scale.linear().domain([0, 1.0, 2.0]).range([max_del_lscolor, neutral_lscolor, max_ben_lscolor]);
+
+  var prog_vis = d3.select("#program-vis");
+  var svg = prog_vis.select("svg");
+  var functions = svg.selectAll(".program-function");
+  functions.each(function(func, fID) {
+    // var instructions = d3.select(this).selectAll(".program-instruction");
+    var ls_blks = d3.select(this).selectAll(".fitness-contribution-blk");
+    ls_blks.attr({
+      "fill": function(d, i) {
+        if (emp.is_code_knockedout(fID, i)) {
+          return "black";
+        } else {
+          var built_loc = emp.original_to_built_prog_space(fID, i);
+          if (built_loc.fID == -1 && built_loc.iID == -1) return "black";
+          // Terrible and hacky color coding. (no support for negative fitness).
+          var base_fitness = emp.get_landscape_val(-1, -1);
+          var ko_fitness = emp.get_landscape_val(built_loc.fID, built_loc.iID);
+
+          if (base_fitness < 0.0) base_fitness = 0.0;
+          if (ko_fitness < 0.0) ko_fitness = 0.0;
+          if (base_fitness == 0.0 && base_fitness == 0.0) return cScale(1.0);
+          if (base_fitness == 0.0) return cScale(2.0);
+          return cScale(ko_fitness / base_fitness);
+        }
+      }
+    });
+  });
+}
+
 // Ran into some weird bugs... just redraw the entire thing for now.
 var resizeProgVis = function() {
-  // var prog_vis = d3.select("#program-vis");
-  // var prog_svg = prog_vis.select("svg");
-  // var prog_vis_w = prog_vis[0][0].clientWidth;
-  // var x_domain = Array(0, 100);
-  // var x_range = Array(0, prog_vis_w);
-  // var xScale = d3.scale.linear().domain(x_domain).range(x_range);
-  //
-  // var iblk_h = 20;
-  // var iblk_w = 75;
-  // var fblk_w = 100;
-  // var iblk_lpad = fblk_w - iblk_w;
-  // var txt_lpad = 2;
-  //
-  // prog_svg.attr({"width": xScale(fblk_w)});
-  // var functions = prog_svg.selectAll(".program-function");
-  // functions.attr({
-  //   "transform": function(func, fID) {
-  //     var x_trans = xScale(0);
-  //     var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
-  //     return "translate(" + x_trans + "," + y_trans + ")";
-  //   }
-  // });
-  //
-  //
-  // var fun_rects = functions.selectAll(".function-def-rect");
-  // fun_rects.attr({"width": xScale(fblk_w)});
-  //
-  // var min_fsize = -1;
-  // var fun_txt = functions.selectAll(".function-def-txt");
-  // fun_txt.style("font-size", "1px")
-  //         .each(function(d) {
-  //           var box = this.getBBox();
-  //           var pbox = this.parentNode.getBBox();
-  //           var fsize = Math.min(pbox.width/box.width, iblk_h/box.height) * 0.9;
-  //           if (min_fsize == -1 || fsize < min_fsize) {
-  //             min_fsize = fsize;
-  //           }
-  //         })
-  //         .style("font-size", min_fsize)
-  //         .each(function(d) {
-  //           var box = this.getBBox();
-  //           d.shift = (iblk_h - box.height)/2;
-  //         })
-  //         .attr({
-  //           "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
-  //         });
+  var prog_vis = d3.select("#program-vis");
+  var svg = prog_vis.select("svg");
 
-  var program_data_obj_id = emp.get_prog_data_obj_id();
-  var svg_obj_id = emp.get_prog_vis_svg_obj_id();
-  if (program_data_obj_id == 255) return; // TODO: make this more robust.
-  var program_data = js.objects[program_data_obj_id][0];
-  var svg = js.objects[svg_obj_id];
-  var prg_name = program_data["name"];
-  var iblk_h = 20;
+  var iblk_h= 20;
   var iblk_w = 65;
   var fblk_w = 100;
   var fitblk_w = 10;
   var iblk_lpad = fblk_w - (iblk_w + fitblk_w);
   var txt_lpad = 2;
 
-  var vis_w = d3.select("#program-vis")[0][0].clientWidth;
+  var vis_w = prog_vis[0][0].clientWidth;
+
   var x_domain = Array(0, 100);
   var x_range = Array(0, vis_w);
   var xScale = d3.scale.linear().domain(x_domain).range(x_range);
 
-  // Compute program display height.
-  // @amlalejini - TODO: make this a function.
-  var prg_h = program_data["functions"].length * iblk_h;
-  for (fID = 0; fID < program_data["functions"].length; fID++) {
-    prg_h += program_data["functions"][fID].sequence_len * iblk_h;
-  }
-  // Reconfigure vis size based on program data.
-  svg.selectAll("*").remove();
-  svg.attr({"width": xScale(fblk_w), "height": prg_h});
-  // Set program name.
-  d3.select("#program-vis-head").text("Program: " + prg_name);
-  // Add a group for each function.
-  var functions = svg.selectAll("g").data(program_data["functions"]);
-  functions.enter().append("g");
-  functions.exit().remove();
-  functions.attr({"class": "program-function",
-                  "knockout": "false",
-                  "transform": function(func, fID) {
-                    var x_trans = xScale(0);
-                    var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
-                    return "translate(" + x_trans + "," + y_trans + ")";
-                  }});
+  // Update width/x attributes (height/y never changes with resize).
+  svg.attr({"width": xScale(fblk_w)});
+  var functions = svg.selectAll(".program-function");
+  functions.attr({
+    "transform": function(func, fID) {
+      var x_trans = xScale(0);
+      var y_trans = (fID * iblk_h + func.cumulative_seq_len * iblk_h);
+      return "translate(" + x_trans + "," + y_trans + ")";
+    }
+  });
   var min_fsize = -1;
-  functions.selectAll(".function-def-rect").remove();
-  functions.selectAll(".function-def-txt").remove();
-  functions.append("rect")
-           .attr({
-             "class": "function-def-rect",
-             "width": xScale(fblk_w),
-             "height": iblk_h,
-             "knockout": "false"
-           })
-           .on("click", on_func_click);
-  functions.append("text")
-           .attr({
-             "class": "function-def-txt",
-             "x": txt_lpad,
-             "y": iblk_h,
-             "pointer-events": "none"
-           })
-           .text(function(func, fID) { return "fn-" + fID + " " + func.affinity + ":"; })
-           .style("font-size", "1px")
-           .each(function(d) {
-             var box = this.getBBox();
-             var pbox = this.parentNode.getBBox();
-             var fsize = Math.min(pbox.width/box.width, pbox.height/box.height)*0.9;
-             if (min_fsize == -1 || fsize < min_fsize) {
-               min_fsize = fsize;
-             }
-           })
-           .style("font-size", min_fsize)
-           .each(function(d) {
-             var box = this.getBBox();
-             var pbox = this.parentNode.getBBox();
-             d.shift = ((pbox.height - box.height)/2);
-           })
-           .attr({
-             "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
-           });
-  // Draw instructions for each function.
+  var func_blks = functions.selectAll(".function-def-rect");
+  func_blks.attr({"width": xScale(fblk_w)});
+  var func_txt = functions.selectAll(".function-def-txt");
+  func_txt.style("font-size", "1px");
+  func_txt.each(function(d) {
+    var box = this.getBBox();
+    var rbox = $(".function-def-rect")[0].getBBox();
+    var fsize = Math.min(rbox.width/box.width, rbox.height/box.height)*0.9;
+    if (min_fsize == -1 || fsize < min_fsize) {
+      min_fsize = fsize;
+    }
+  });
+  func_txt.style("font-size", min_fsize)
+          .attr({
+            "dy": function(d) { return (-1 * 2.0)+"px"; }//return (-1 * (d.shift + 2)) + "px"; }
+          });
+
+  // Resize instructions for each function.
   functions.each(function(func, fID) {
-    var instructions = d3.select(this).selectAll("g").data(func.sequence);
-    instructions.enter().append("g");
-    instructions.exit().remove();
+    var instructions = d3.select(this).selectAll(".program-instruction");
     instructions.attr({
-                      "class": "program-instruction",
-                      "transform": function(d, i) {
-                        var x_trans = xScale(iblk_lpad);
-                        var y_trans = (iblk_h + i * iblk_h);
-                        return "translate(" + x_trans + "," + y_trans + ")";
-                      }});
-    instructions.append("rect")
-                .attr({
-                  "width": function(d) { d.w = xScale(iblk_w); return d.w; },
-                  "height": iblk_h,
-                  "knockout": "false"
-                })
-                .on("click", on_inst_click);
-    var min_fsize = -1;
-    instructions.append("text")
-                .attr({
-                  "x": txt_lpad,
-                  "y": iblk_h,
-                  "pointer-events": "none"
-                })
-                .text(function(d, i) {
-                  var inst_str = d.name;
-                  if (d.has_affinity) inst_str += " " + d.affinity;
-                  for (arg = 0; arg < d.num_args; arg++) inst_str += " " + d.args[arg];
-                  return inst_str;
-                })
-                .style("font-size", "1px")
-                .each(function(d) {
-                  var box = this.getBBox();
-                  var pbox = this.parentNode.getBBox();
-                  var fsize = Math.min(pbox.width/box.width, pbox.height/box.height)*0.9;
-                  if (min_fsize == -1 || fsize < min_fsize) {
-                    min_fsize = fsize;
-                  }
-                })
-                .style("font-size", min_fsize)
-                .each(function(d) {
-                  var box = this.getBBox();
-                  var pbox = this.parentNode.getBBox();
-                  d.shift = ((pbox.height - box.height)/2);
-                })
-                .attr({
-                  "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
-                });
-    // Fitness contribution indicator.
-    instructions.append("rect")
-                .attr({
-                  "class": "fitness-contribution-blk",
-                  "x": xScale(iblk_w),
-                  "width": xScale(fitblk_w),
-                  "height": iblk_h,
-                  "fill": "grey"
-                });
+      "transform": function(d, i) {
+                            var x_trans = xScale(iblk_lpad);
+                            var y_trans = (iblk_h + i * iblk_h);
+                            return "translate(" + x_trans + "," + y_trans + ")";
+                          }
+    });
+    var inst_blks = instructions.selectAll(".program-instruction-blk");
+    inst_blks.attr({"width": xScale(iblk_w)});
+    min_fsize = -1;
+    var inst_txt = instructions.selectAll(".program-instruction-txt");
+    inst_txt.style("font-size", "1px")
+                  .each(function(d) {
+                    var box = this.getBBox();
+                    var pbox = this.parentNode.getBBox();
+                    var fsize = Math.min(pbox.width/(box.width+1), pbox.height/box.height)*0.9;
+                    if (min_fsize == -1 || fsize < min_fsize) {
+                      min_fsize = fsize;
+                    }
+                  })
+                  .style("font-size", min_fsize)
+                  .each(function(d) {
+                    var box = this.getBBox();
+                    var pbox = this.parentNode.getBBox();
+                    d.shift = ((pbox.height - box.height)/2);
+                  })
+                  .attr({
+                    "dy": function(d) { return (-1 * (d.shift + 2)) + "px"; }
+                  });
+    var ls_blks = instructions.selectAll(".fitness-contribution-blk");
+    ls_blks.attr({
+      "x": xScale(iblk_w),
+      "width": xScale(fitblk_w)
+    });
   });
 }
 
