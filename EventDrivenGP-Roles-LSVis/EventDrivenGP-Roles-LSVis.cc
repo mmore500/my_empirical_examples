@@ -11,6 +11,7 @@
 #include "hardware/InstLib.h"
 #include "hardware/EventLib.h"
 #include "tools/map_utils.h"
+#include "tools/string_utils.h"
 
 #include "web/init.h"
 #include "web/JSWrap.h"
@@ -54,7 +55,6 @@ constexpr size_t CPU_SIZE = emp::EventDrivenGP::CPU_SIZE;
 constexpr size_t MAX_INST_ARGS = emp::EventDrivenGP::MAX_INST_ARGS;
 
 constexpr int DEFAULT_RANDOM_SEED = -1;
-
 
 // This will be the target of evolution (what the world manages/etc.)
 struct Agent {
@@ -276,10 +276,6 @@ protected:
     DisplayProgram(name);
   };
 
-  std::function<void(std::string)> read_prog_from_str = [this](std::string prog_str) {
-    std::cout << prog_str << std::endl;
-  };
-
   void InitializeVariables() {
     JSWrap(knockout_func, "knockout_func");
     JSWrap(knockout_inst, "knockout_inst");
@@ -287,7 +283,6 @@ protected:
     JSWrap(original_to_built_space, "original_to_built_prog_space");
     JSWrap(get_landscape_val, "get_landscape_val");
     JSWrap(on_program_select, "on_program_select");
-    JSWrap(read_prog_from_str, "read_prog_from_str");
     JSWrap([this](){ return this->program_data->GetID(); }, "get_prog_data_obj_id");
     JSWrap([this](){ return this->GetSVG()->GetID(); }, "get_prog_vis_svg_obj_id");
     EM_ASM({ window.addEventListener("resize", resizeProgVis); });
@@ -753,7 +748,7 @@ namespace web = emp::web;
 
 class Application {
 private:
-  emp::Random *random;
+  emp::Ptr<emp::Random> random;
 
   // Localized parameter values.
   // -- General --
@@ -780,6 +775,14 @@ private:
   emp::Ptr<Agent> eval_agent;
   emp::Ptr<Deme> landscape_deme;
   emp::Ptr<Agent> landscape_agent;
+  emp::Ptr<event_lib_t> event_lib;
+  emp::Ptr<inst_lib_t> inst_lib;
+
+  std::function<void(std::string, std::string)> read_prog_from_str = [this](std::string prog_name, std::string prog_str) {
+    std::istringstream in_prog(prog_str);
+    LoadProgram(prog_name, in_prog);
+    std::cout << "Successfully loaded program!" << std::endl;
+  };
 
   std::function<double(Deme*)> fit_fun =
     [this](Deme * deme) {
@@ -808,7 +811,9 @@ public:
       eval_deme(),
       eval_agent(),
       landscape_deme(),
-      landscape_agent()
+      landscape_agent(),
+      event_lib(),
+      inst_lib()
   {
 
     // Localize parameter values.
@@ -822,8 +827,8 @@ public:
     // Create random number generator.
     random = emp::NewPtr<emp::Random>(random_seed);
     // Confiigure instruction set/event library.
-    emp::Ptr<event_lib_t> event_lib = emp::NewPtr<event_lib_t>(*emp::EventDrivenGP::DefaultEventLib());
-    emp::Ptr<inst_lib_t> inst_lib = emp::NewPtr<inst_lib_t>(*emp::EventDrivenGP::DefaultInstLib());
+    event_lib = emp::NewPtr<event_lib_t>(*emp::EventDrivenGP::DefaultEventLib());
+    inst_lib = emp::NewPtr<inst_lib_t>(*emp::EventDrivenGP::DefaultInstLib());
     inst_lib->AddInst("GetRoleID", Inst_GetRoleID, 1, "Local memory[Arg1] = Trait[RoleID]");
     inst_lib->AddInst("SetRoleID", Inst_SetRoleID, 1, "Trait[RoleID] = Local memory[Arg1]");
     inst_lib->AddInst("GetXLoc", Inst_GetXLoc, 1, "Local memory[Arg1] = Trait[XLoc]");
@@ -842,6 +847,7 @@ public:
     emp::JSWrap([this]() { this->RunCurProgram(); }, "run_program");
     emp::JSWrap([this]() { this->DoReset(); }, "reset_application");
     emp::JSWrap([this]() { this->DoLandscape(); }, "landscape_program");
+    emp::JSWrap(read_prog_from_str, "read_prog_from_str");
 
     vis_dash  << "<div class='row'>"
                 << "<div class='col'>"
@@ -860,6 +866,9 @@ public:
                   << "<h3>Fitness: <span class=\"badge badge-default\">" << web::Live([this]() { return this->fit_fun(eval_deme); }) << "</span></h3>"
                 << "</div>"
               << "</div>";
+    // Some interface setup.
+    // EM_ASM({
+    // });
 
     // Configure program visualization.
     // Define a convenient affinity table.
@@ -998,6 +1007,70 @@ public:
       program_name_set.add(Pointer_stringify($0));
       updateProgramSelection();
     }, _name.c_str());
+  }
+
+  /// Here's a horrible, inefficient, and unforgiving load program function that definitely does not fail gracefully.
+  void LoadProgram(std::string prog_name, std::istream & input) {
+    program_t prog(inst_lib);
+    std::string cur_line;
+    emp::vector<std::string> line_components;
+
+    while (!input.eof()) {
+      std::getline(input, cur_line);
+      emp::left_justify(cur_line); // Clear out leading whitespace.
+
+      if (cur_line == "") continue; // Skip empty lines.
+
+      //std::string command = emp::string_pop_word(cur_line);
+      emp::slice(cur_line, line_components, '-');
+      if (line_components[0] == "Fn") {
+        line_components.resize(0);
+        emp::slice(cur_line, line_components, ' ');
+        std::string aff_str = line_components[1];
+        // Extract function affinity.
+        affinity_t fun_aff;
+        for (size_t i = 0; i < aff_str.size(); ++i) {
+          if (i >= fun_aff.GetSize()) break;
+          if (aff_str[i] == '1') fun_aff.Set(fun_aff.GetSize() - i - 1, true);
+        }
+        // Push a new function onto the program.
+        prog.PushFunction(fun_t(fun_aff));
+      } else {
+        line_components.resize(0);
+        emp::slice(cur_line, line_components, ' ');
+        std::string inst_name = line_components[0];
+        size_t inst_id = inst_lib->GetID(inst_name);
+        bool has_affinity = inst_lib->HasProperty(inst_id, "affinity");
+        int arg = 1;
+        affinity_t inst_aff;
+        if (has_affinity) {
+          std::string aff_str = line_components[1];
+          ++arg;
+          for (size_t i = 0; i < aff_str.size(); ++i) {
+            if (i >= inst_aff.GetSize()) break;
+            if (aff_str[i] == '1') inst_aff.Set(inst_aff.GetSize() - i - 1, true);
+          }
+        }
+        int arg0 = 0;
+        int arg1 = 0;
+        int arg2 = 0;
+        if (arg < line_components.size()) {
+          arg0 = std::stoi(line_components[arg]); ++arg;
+        }
+        if (arg < line_components.size()) {
+          arg1 = std::stoi(line_components[arg]); ++arg;
+        }
+        if (arg < line_components.size()) {
+          arg2 = std::stoi(line_components[arg]); ++arg;
+        }
+        prog.PushInst(inst_id, arg0, arg1, arg2, inst_aff);
+      }
+
+    }
+    std::cout << "Look, mah! Here's the program I made: " << std::endl;
+    prog.PrintProgram();
+    DoAddProgram(prog_name, prog);
+    //return prog;
   }
 
 };

@@ -1,10 +1,8 @@
 var program_name_set = new Set();
 var prog_reader = new FileReader();
-prog_reader.onload = function(){ emp.read_prog_from_str(prog_reader.result); };
 var control = document.getElementById("prog-file-selector");
+prog_reader.onload = function(){ emp.read_prog_from_str(control.files[0].name, prog_reader.result); };
 control.addEventListener("change", function(event) { prog_reader.readAsText(control.files[0]); }, false);
-
-
 
 var on_inst_click = function(inst, i) {
   emp.knockout_inst(inst.function, inst.position);
