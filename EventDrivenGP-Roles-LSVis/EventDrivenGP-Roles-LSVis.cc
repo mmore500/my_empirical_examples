@@ -937,7 +937,7 @@ public:
       return this->fit_fun(this->landscape_deme);
     });
     // Start the visualization.
-    program_vis.Start("Test2");
+    program_vis.Start("Test");
     program_vis.On("resize", [this]() { std::cout << "On program vis resize!" << std::endl; });
     // Configure deme visualization.
     deme_vis.Start(eval_deme);
